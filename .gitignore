@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# venv
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Model checkpoints / external repos
+boxer/
+checkpoints/
+*.pt
+*.pth
+*.safetensors
+
+# OS
+.DS_Store
+*.swp
+
+# Outputs
+outputs/
+*.log

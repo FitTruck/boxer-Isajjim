@@ -1,0 +1,40 @@
+# Verified end-to-end on:
+#   Python 3.11, torch 2.12.0+cu130, transformers 4.52.0.dev0,
+#   ultralytics 8.4.53, NVIDIA RTX 3060 12GB.
+
+# ---- Web framework ----
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.5.0
+
+# ---- HTTP client (image fetch + backend callback) ----
+aiohttp>=3.8.0
+requests>=2.31.0
+
+# ---- Image / numeric ----
+pillow>=10.0.0
+numpy>=1.24.0
+opencv-python>=4.8.0          # CLAHE + depth resize
+
+# ---- ML core ----
+torch>=2.1.0
+torchvision>=0.16.0           # used: torchvision.ops.nms
+ultralytics>=8.3.0            # YOLOE-26x-seg
+# transformers >=4.46 ships DepthPro support via AutoImageProcessor /
+# DepthProForDepthEstimation.  We deliberately avoid the legacy
+# `transformers.pipelines` import (broken in some torch/transformers dev
+# combinations) and use only Auto* classes for both DepthPro + DA V2.
+transformers>=4.46.0
+huggingface-hub>=0.24.0
+
+# ---- Boxer 3D OBB lifter (cloned separately, see README) ----
+# tqdm + dill come in transitively via boxer's own deps, but we surface
+# them so the AI server alone can be installed without re-deriving them.
+tqdm>=4.66.0
+dill>=0.3.7
+
+# ---- Dev / test ----
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+httpx>=0.27.0                 # FastAPI TestClient
