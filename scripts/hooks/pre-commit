@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Pre-commit hook: keep docs/tdd/tdd.md in sync with code changes.
+#
+# Flow:
+#   1. If no staged .py file under ai/ or api/, exit 0 (nothing to do).
+#   2. Otherwise, invoke `claude -p` non-interactively. Claude reads the staged
+#      diff + current docs/tdd/tdd.md, edits the doc if anything is stale, and
+#      prints either "NO_UPDATE_NEEDED" or "UPDATED".
+#   3. If the doc was modified, stage it so the commit includes the sync.
+#
+# Bypass: `SKIP_DOC_SYNC=1 git commit ...`
+# Safety: hook failures (claude error, timeout) only warn — they never block
+#         the commit. Doc accuracy is best-effort, not a gate.
+#
+# Install: run `scripts/hooks/install.sh` once.
+
+set -u
+
+if [[ "${SKIP_DOC_SYNC:-0}" == "1" ]]; then
+    exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+DOC_PATH="docs/tdd/tdd.md"
+MAX_DIFF_LINES="${DOC_SYNC_MAX_DIFF:-1500}"
+TIMEOUT_SECONDS="${DOC_SYNC_TIMEOUT:-180}"
+
+cd "$REPO_ROOT" || exit 0
+
+# --- 1. Detect relevant staged changes -------------------------------------
+mapfile -t STAGED_CODE < <(
+    git diff --cached --name-only --diff-filter=ACMR \
+        | grep -E '^(ai|api)/.*\.py$' || true
+)
+
+if [[ ${#STAGED_CODE[@]} -eq 0 ]]; then
+    exit 0
+fi
+
+if [[ ! -f "$DOC_PATH" ]]; then
+    # Doc doesn't exist yet — nothing to sync against.
+    exit 0
+fi
+
+if ! command -v claude >/dev/null 2>&1; then
+    echo "[doc-sync] claude CLI not found; skipping tdd.md sync." >&2
+    exit 0
+fi
+
+# --- 2. Build context for claude -------------------------------------------
+DIFF_CONTENT="$(git diff --cached --unified=3 -- "${STAGED_CODE[@]}")"
+DIFF_LINE_COUNT="$(printf '%s\n' "$DIFF_CONTENT" | wc -l)"
+
+if [[ "$DIFF_LINE_COUNT" -gt "$MAX_DIFF_LINES" ]]; then
+    echo "[doc-sync] staged diff is ${DIFF_LINE_COUNT} lines (> ${MAX_DIFF_LINES}); skipping auto-sync." >&2
+    echo "[doc-sync] review docs/tdd/tdd.md manually or set DOC_SYNC_MAX_DIFF higher." >&2
+    exit 0
+fi
+
+PROMPT=$(cat <<EOF
+You are a documentation maintainer for the boxer-Isajjim repo.
+
+The following Python files in ai/ or api/ are about to be committed:
+$(printf -- '- %s\n' "${STAGED_CODE[@]}")
+
+Staged unified diff (from \`git diff --cached\`):
+\`\`\`diff
+${DIFF_CONTENT}
+\`\`\`
+
+Your task:
+1. Read the current technical design doc at docs/tdd/tdd.md.
+2. The doc references code with \`path:line\` citations and describes
+   behavior, data flow, env vars, API endpoints, and architecture. Check
+   whether any of the staged changes invalidate the doc:
+   - Renamed/removed/added public symbols (classes, functions, env vars,
+     endpoints, dataclass fields).
+   - Changed default values or behavior described in the doc.
+   - New stages, new config flags, new dependencies.
+   - Line-number citations that point past the new end-of-file.
+3. If updates are needed, use the Edit tool to fix docs/tdd/tdd.md.
+   Keep changes surgical — only update what the staged diff actually breaks.
+   Do NOT rewrite the whole doc. Do NOT add speculative content.
+4. If nothing needs updating, do not edit any file.
+
+Be terse. Do not explain your reasoning in the final message. Your final
+message must be exactly one of these two tokens, alone on a line:
+- NO_UPDATE_NEEDED
+- UPDATED
+EOF
+)
+
+# --- 3. Run claude (best-effort, never block the commit) -------------------
+echo "[doc-sync] checking docs/tdd/tdd.md against staged changes (timeout=${TIMEOUT_SECONDS}s)..." >&2
+
+CLAUDE_OUTPUT="$(
+    timeout "${TIMEOUT_SECONDS}" claude -p "$PROMPT" \
+        --permission-mode acceptEdits \
+        --allowedTools "Read,Edit" \
+        --output-format text \
+        2>/dev/null
+)" || {
+    echo "[doc-sync] claude invocation failed or timed out; committing without sync." >&2
+    exit 0
+}
+
+# --- 4. If the doc changed on disk, stage it -------------------------------
+if ! git diff --quiet -- "$DOC_PATH"; then
+    git add -- "$DOC_PATH"
+    echo "[doc-sync] ✓ docs/tdd/tdd.md updated and staged." >&2
+elif grep -q "UPDATED" <<<"$CLAUDE_OUTPUT"; then
+    # Claude claimed UPDATED but no diff — log and move on.
+    echo "[doc-sync] claude reported UPDATED but no file changes detected." >&2
+else
+    echo "[doc-sync] ✓ docs/tdd/tdd.md already in sync." >&2
+fi
+
+exit 0
