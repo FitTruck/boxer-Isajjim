@@ -79,7 +79,12 @@ class FurniturePipeline:
                 image_url=image_url,
                 error="Failed to fetch image",
             )
-        return self.process_pil(image, image_id=image_id, image_url=image_url)
+        # Offload sync GPU work to a worker thread so concurrent asyncio.gather()
+        # callers on different devices actually overlap on the GPU; otherwise the
+        # event loop serializes them.
+        return await asyncio.to_thread(
+            self.process_pil, image, image_id=image_id, image_url=image_url
+        )
 
     def process_pil(
         self,
