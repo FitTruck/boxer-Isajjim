@@ -28,7 +28,11 @@ TIMEOUT_SECONDS="${DOC_SYNC_TIMEOUT:-180}"
 cd "$REPO_ROOT" || exit 0
 
 # --- 1. Detect relevant staged changes -------------------------------------
-mapfile -t STAGED_CODE < <(
+# `mapfile` is bash 4+; macOS ships bash 3.2 by default. Use a portable loop.
+STAGED_CODE=()
+while IFS= read -r _line; do
+    [[ -n "$_line" ]] && STAGED_CODE+=("$_line")
+done < <(
     git diff --cached --name-only --diff-filter=ACMR \
         | grep -E '^(ai|api)/.*\.py$' || true
 )
