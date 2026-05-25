@@ -374,7 +374,7 @@ await send_callback(estimate_id, result_data=FurniturePipeline.to_json_response(
 async def send_callback(estimate_id, result_data=None, error=None) -> bool:
     url = CALLBACK_URL_TEMPLATE.replace("{estimateId}", str(estimate_id))
     payload = {"error": error} if error else (result_data or {"error": "Unknown error"})
-    headers = {"X-INTERNAL-TOKEN": INTERNAL_TOKEN}
+    headers = {"X_INTERNAL_TOKEN": X_INTERNAL_TOKEN}
     for attempt in range(CALLBACK_RETRY_COUNT + 1):
         async with aiohttp.ClientSession(timeout=...) as session:
             async with session.post(url, json=payload, headers=headers) as response:
@@ -385,7 +385,7 @@ async def send_callback(estimate_id, result_data=None, error=None) -> bool:
 ```
 
 - URL 템플릿: `https://api.isajjim.kro.kr/api/v1/estimates/{estimateId}/callback` (default).
-- 인증: `X-INTERNAL-TOKEN` 헤더 (env `AUTH_TOKEN`). 백엔드의 `auth.internal-token`과 일치해야 함.
+- 인증: `X_INTERNAL_TOKEN` 헤더 (env `AUTH_TOKEN`). 백엔드의 `auth.internal-token`과 일치해야 함.
 - 재시도: `CALLBACK_RETRY_COUNT + 1`회 (default 2회 = 1회 재시도).
 - 실패는 로그만 남기고 `False` 반환 (요청자에게 별도 알림 없음 — async 모드 한계).
 
@@ -474,7 +474,7 @@ URL ─▶ ImageFetcher.fetch_async ─▶ PIL.Image (RGB)
 | `CALLBACK_URL_TEMPLATE` | `https://api.isajjim.kro.kr/.../{estimateId}/callback` | `api/config.py:28` | 백엔드 콜백 URL |
 | `CALLBACK_TIMEOUT_SECONDS` | `30` | `api/config.py:32` | 콜백 HTTP timeout |
 | `CALLBACK_RETRY_COUNT` | `1` | `api/config.py:33` | 콜백 재시도 횟수 |
-| `AUTH_TOKEN` | `""` | `api/config.py:36` | 백엔드 `X-INTERNAL-TOKEN` |
+| `AUTH_TOKEN` | `""` | `api/config.py:36` | 백엔드 `X_INTERNAL_TOKEN` |
 | `LOG_LEVEL` | `INFO` | `api/app.py:22` | 로깅 레벨 |
 
 ### 7.2 디바이스 검출 로직 (`ai/config.py:38-50`)
@@ -623,7 +623,7 @@ markers =
 | 파일 | 핵심 심볼 | 역할 |
 |------|-----------|------|
 | `api/app.py` | `app`, `lifespan` | FastAPI 인스턴스, 풀 부트스트랩 |
-| `api/config.py` | `device`, `CALLBACK_*`, `INTERNAL_TOKEN` | 환경/콜백 설정 |
+| `api/config.py` | `device`, `CALLBACK_*`, `X_INTERNAL_TOKEN` | 환경/콜백 설정 |
 | `api/models.py` | `AnalyzeFurnitureRequest`, `…Single`, `…Base64` | Pydantic 요청 |
 | `api/routes/furniture.py` | `analyze_furniture`, `_analyze_and_callback`, `_borrow_pipeline` | 비즈니스 라우트 |
 | `api/routes/health.py` | `health_check`, `gpu_status` | 운영용 |

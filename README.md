@@ -78,7 +78,7 @@ export BOXER_CHECKPOINT=$PWD/boxer/ckpts/boxernet_default.pt  # 실제 파일명
 | `ENABLE_MULTI_GPU` | `true` | 모든 GPU 자동 검출 |
 | `GPU_IDS` | (auto) | 예: `0,1,2,3` |
 | `CALLBACK_URL_TEMPLATE` | `https://api.isajjim.kro.kr/api/v1/estimates/{estimateId}/callback` | 비동기 결과 callback URL |
-| `AUTH_TOKEN` | (필수) | 백엔드 `X-INTERNAL-TOKEN` 헤더에 실리는 공유 시크릿. Isajjim-Backend의 `auth.internal-token`과 동일해야 함 |
+| `AUTH_TOKEN` | (필수) | 백엔드 `X_INTERNAL_TOKEN` 헤더에 실리는 공유 시크릿. Isajjim-Backend의 `auth.internal-token`과 동일해야 함 |
 
 ---
 

@@ -31,7 +31,7 @@ async def send_callback(
     if not X_INTERNAL_TOKEN:
         logger.warning("AUTH_TOKEN env var is empty; backend will reject the callback")
 
-    headers = {"X-INTERNAL-TOKEN": X_INTERNAL_TOKEN}
+    headers = {"X_INTERNAL_TOKEN": X_INTERNAL_TOKEN}
     timeout = aiohttp.ClientTimeout(total=CALLBACK_TIMEOUT_SECONDS)
     for attempt in range(CALLBACK_RETRY_COUNT + 1):
         try:
