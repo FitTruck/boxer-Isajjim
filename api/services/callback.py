@@ -9,7 +9,7 @@ from api.config import (
     CALLBACK_RETRY_COUNT,
     CALLBACK_TIMEOUT_SECONDS,
     CALLBACK_URL_TEMPLATE,
-    INTERNAL_TOKEN,
+    X_INTERNAL_TOKEN,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,10 +28,10 @@ async def send_callback(
     url = CALLBACK_URL_TEMPLATE.replace("{estimateId}", str(estimate_id))
     payload: Dict[str, Any] = {"error": error} if error else (result_data or {"error": "Unknown error"})
 
-    if not INTERNAL_TOKEN:
+    if not X_INTERNAL_TOKEN:
         logger.warning("AUTH_TOKEN env var is empty; backend will reject the callback")
 
-    headers = {"X-INTERNAL-TOKEN": INTERNAL_TOKEN}
+    headers = {"X-INTERNAL-TOKEN": X_INTERNAL_TOKEN}
     timeout = aiohttp.ClientTimeout(total=CALLBACK_TIMEOUT_SECONDS)
     for attempt in range(CALLBACK_RETRY_COUNT + 1):
         try:

@@ -32,5 +32,5 @@ CALLBACK_URL_TEMPLATE: str = os.environ.get(
 CALLBACK_TIMEOUT_SECONDS: int = int(os.environ.get("CALLBACK_TIMEOUT_SECONDS", "30"))
 CALLBACK_RETRY_COUNT: int = int(os.environ.get("CALLBACK_RETRY_COUNT", "1"))
 # Shared secret with Isajjim-Backend (`auth.internal-token` ← `AUTH_TOKEN`).
-# Sent as `X-INTERNAL-TOKEN` header; backend rejects requests without it.X
-X-INTERNAL-TOKEN: str = os.environ.get("AUTH_TOKEN", "")
+# Sent as `X-INTERNAL-TOKEN` header; backend rejects requests without it.
+X_INTERNAL_TOKEN: str = os.environ.get("AUTH_TOKEN", "")
