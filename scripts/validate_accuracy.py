@@ -152,7 +152,7 @@ def _match(objs: List[ObjectReport], gts: List[GroundTruth]) -> None:
 # --------------------------------------------------------------------------- #
 # Per-image run: drive stages manually so we can capture focal + depth.
 # --------------------------------------------------------------------------- #
-def _run_image(pipe, image, source: str) -> ImageReport:
+def _run_image(pipe, image, source: str, grav_est=None) -> ImageReport:
     import numpy as np
 
     w, h = image.size
@@ -163,6 +163,18 @@ def _run_image(pipe, image, source: str) -> ImageReport:
 
     depth_res = pipe.depth_model.estimate(image)
     fl = depth_res.focal_length_px
+    gravity = None
+    if grav_est is not None:
+        cg = grav_est.estimate(image)
+        # GeoCalib focal is purpose-built and more reliable; use it + its gravity.
+        fl = cg.focal_px
+        gravity = cg.gravity_down_cam
+        log.info(
+            "  GeoCalib: focal=%.0f roll=%.1f pitch=%.1f deg gravity_down=%s",
+            cg.focal_px, cg.roll_deg, cg.pitch_deg,
+            np.round(cg.gravity_down_cam, 3).tolist(),
+        )
+
     rep = ImageReport(
         source=source,
         size=(w, h),
@@ -176,6 +188,7 @@ def _run_image(pipe, image, source: str) -> ImageReport:
         labels=labels,
         depth=depth_res.depth,
         focal_length_px=fl,
+        gravity_down_cam=gravity,
     )
     obb_by_idx = {obb.input_index: obb for obb in obbs}
 
@@ -286,6 +299,11 @@ def main() -> None:
     ap.add_argument("image", nargs="?", help="single image path for quick diagnostic")
     ap.add_argument("--manifest", help="JSON manifest with images + optional ground-truth dims")
     ap.add_argument("--report", help="write full JSON report to this path")
+    ap.add_argument(
+        "--geocalib",
+        action="store_true",
+        help="estimate per-image gravity + focal with GeoCalib and feed them to BoxerNet",
+    )
     args = ap.parse_args()
 
     if not args.image and not args.manifest:
@@ -301,6 +319,12 @@ def main() -> None:
     pipe = FurniturePipeline(enable_3d=True)
     log.info("Pipeline ready in %.1fs", time.time() - t0)
 
+    grav_est = None
+    if args.geocalib:
+        from ai.pipeline.gravity_estimation import CameraGravityEstimator
+
+        grav_est = CameraGravityEstimator()
+
     if args.manifest:
         jobs = _parse_manifest(args.manifest)
     else:
@@ -315,7 +339,7 @@ def main() -> None:
                                        focal_length_px=None, focal_over_width=None,
                                        error="load failed"))
             continue
-        rep = _run_image(pipe, image, source)
+        rep = _run_image(pipe, image, source, grav_est=grav_est)
         if gts:
             _match(rep.objects, gts)
         _print_image(rep)

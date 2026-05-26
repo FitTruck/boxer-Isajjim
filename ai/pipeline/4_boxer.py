@@ -120,6 +120,7 @@ class BoxerLifter:
         labels: List[str],
         depth: np.ndarray,
         focal_length_px: Optional[float] = None,
+        gravity_down_cam: Optional[np.ndarray] = None,
     ) -> List[BoxerObb]:
         """Run BoxerNet on a single image with N 2D detections + dense depth.
 
@@ -170,12 +171,20 @@ class BoxerLifter:
             fx = fy = target * 0.75
         cx, cy = target / 2.0, target / 2.0
 
+        # World<-cam rotation: from estimated gravity (GeoCalib) when available,
+        # else the level monocular default. Used for BOTH the pose and the sdp
+        # so points and pose share one gravity-aligned world frame.
+        if gravity_down_cam is not None:
+            R_world_cam = self._R_world_cam_from_gravity(gravity_down_cam)
+        else:
+            R_world_cam = self._R_WORLD_FROM_CAM
+
         img_t = self._image_to_tensor(image_r)
         cam = self._build_camera(target, target, fx, fy, cx, cy)
-        pose = self._default_pose()
+        pose = self._pose_from_R(R_world_cam)
         sdp = self._depth_to_sdp(
             depth_r, cam_fx=fx, cam_fy=fy, cx=cx, cy=cy,
-            R_world_cam=self._R_WORLD_FROM_CAM,
+            R_world_cam=R_world_cam,
         )
         bb2d = self._to_boxer_order(bbox_r)
 
@@ -237,12 +246,36 @@ class BoxerLifter:
         [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]], dtype=np.float32
     )
 
-    def _default_pose(self):
-        """World<-rig pose for a level, forward-looking camera (gravity = -Z)."""
-        R = torch.from_numpy(self._R_WORLD_FROM_CAM.copy()).reshape(-1)  # 9, row-major
+    def _pose_from_R(self, R_world_cam: np.ndarray):
+        """Build a world<-rig PoseTW (t=0) from a 3x3 world<-cam rotation."""
+        R = torch.from_numpy(np.ascontiguousarray(R_world_cam, dtype=np.float32)).reshape(-1)
         trans = torch.zeros(3)
-        data = torch.cat([R, trans], dim=0).unsqueeze(0)  # (1, 12)
+        data = torch.cat([R, trans], dim=0).unsqueeze(0)  # (1, 12) row-major R + t
         return self.PoseTW(data).to(self.device)
+
+    @staticmethod
+    def _R_world_cam_from_gravity(gravity_down_cam: np.ndarray) -> np.ndarray:
+        """World<-cam rotation from the gravity (down) direction in camera coords.
+
+        World is gravity-aligned: Z up, Y forward (horizontal), X right.
+        Reduces exactly to `_R_WORLD_FROM_CAM` when the camera is level
+        (gravity = camera +Y). Heading/yaw is fixed by projecting the camera's
+        optical axis (+Z) onto the horizontal plane.
+        """
+        g = np.asarray(gravity_down_cam, dtype=np.float32)
+        g = g / (np.linalg.norm(g) + 1e-9)
+        up = -g  # world up, in camera coords
+        fwd = np.array([0.0, 0.0, 1.0], dtype=np.float32)  # camera optical axis
+        f = fwd - np.dot(fwd, up) * up  # horizontal forward
+        if np.linalg.norm(f) < 1e-4:  # looking near-vertically; pick any horizontal
+            f = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            f = f - np.dot(f, up) * up
+        f = f / (np.linalg.norm(f) + 1e-9)
+        r = np.cross(f, up)  # world right (right-handed: X = Y x Z)
+        r = r / (np.linalg.norm(r) + 1e-9)
+        # Columns are world X, Y, Z expressed in camera coords -> R_cam_world.
+        R_cam_world = np.stack([r, f, up], axis=1).astype(np.float32)
+        return R_cam_world.T  # R_world_cam
 
     @staticmethod
     def _depth_to_sdp(
