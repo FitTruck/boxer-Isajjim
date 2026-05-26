@@ -149,6 +149,19 @@ class BoxerLifter:
         bbox_r[:, [0, 2]] *= sx
         bbox_r[:, [1, 3]] *= sy
 
+        # Sanity-check the predicted focal. Depth Pro occasionally returns an
+        # implausible focal (very wide/narrow FOV) which wrecks the metric 3D
+        # scale; fall back to a default pinhole in that case.
+        if focal_length_px:
+            ratio = float(focal_length_px) / W0
+            if not (0.5 <= ratio <= 2.5):
+                logger.warning(
+                    "focal_px=%.0f implausible (focal/width=%.2f); using default FOV",
+                    float(focal_length_px),
+                    ratio,
+                )
+                focal_length_px = None
+
         # Scale intrinsics: fx/fy each follow their axis scale.
         if focal_length_px:
             fx = float(focal_length_px) * sx
@@ -159,8 +172,11 @@ class BoxerLifter:
 
         img_t = self._image_to_tensor(image_r)
         cam = self._build_camera(target, target, fx, fy, cx, cy)
-        pose = self._identity_pose()
-        sdp = self._depth_to_sdp(depth_r, cam_fx=fx, cam_fy=fy, cx=cx, cy=cy)
+        pose = self._default_pose()
+        sdp = self._depth_to_sdp(
+            depth_r, cam_fx=fx, cam_fy=fy, cx=cx, cy=cy,
+            R_world_cam=self._R_WORLD_FROM_CAM,
+        )
         bb2d = self._to_boxer_order(bbox_r)
 
         datum = {
@@ -212,11 +228,20 @@ class BoxerLifter:
             params=params,
         ).to(self.device)
 
-    def _identity_pose(self):
-        """Identity pose: rig frame = world frame."""
-        rot = torch.eye(3).reshape(-1)  # 9
-        trans = torch.zeros(3)  # 3
-        data = torch.cat([rot, trans], dim=0).unsqueeze(0)  # (1, 12)
+    # Camera "Y-down" → world "Z-down" (gravity along world -Z). This is
+    # BoxerNet's world convention and the Omni3D/SUN-RGBD monocular default used
+    # when no per-image gravity/pose is available. Passing identity instead made
+    # BoxerNet assume the camera looks ALONG gravity (top-down), wrecking box
+    # orientation for normal eye-level room photos.
+    _R_WORLD_FROM_CAM = np.array(
+        [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]], dtype=np.float32
+    )
+
+    def _default_pose(self):
+        """World<-rig pose for a level, forward-looking camera (gravity = -Z)."""
+        R = torch.from_numpy(self._R_WORLD_FROM_CAM.copy()).reshape(-1)  # 9, row-major
+        trans = torch.zeros(3)
+        data = torch.cat([R, trans], dim=0).unsqueeze(0)  # (1, 12)
         return self.PoseTW(data).to(self.device)
 
     @staticmethod
@@ -227,11 +252,15 @@ class BoxerLifter:
         cx: float,
         cy: float,
         stride: int = 8,
+        R_world_cam: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        """Dense depth → (N, 3) 3D points in camera frame.
+        """Dense depth → (N, 3) 3D points in the world frame.
 
         Boxer's `prepare_inputs` expects (N, 3) and unsqueezes the batch dim itself.
-        Camera frame == world frame because we pass an identity world<-rig pose.
+        Points are back-projected in the camera frame, then rotated by
+        `R_world_cam` into BoxerNet's gravity-aligned world (matching the pose
+        passed as `T_world_rig`). Without this rotation the points would be in
+        the camera frame while the pose claims a Z-down world — inconsistent.
         """
         h, w = depth.shape
         vs = np.arange(0, h, stride, dtype=np.float32)
@@ -243,9 +272,11 @@ class BoxerLifter:
         xx = (uu - cx) * zz / cam_fx
         yy = (vv - cy) * zz / cam_fy
         pts = np.stack([xx, yy, zz], axis=-1).astype(np.float32)
+        if R_world_cam is not None and len(pts):
+            pts = (pts @ R_world_cam.T).astype(np.float32)
         if len(pts) == 0:
             pts = np.zeros((1, 3), dtype=np.float32)
-        return pts  # (N, 3)
+        return pts  # (N, 3) in world frame
 
     @staticmethod
     def _to_boxer_order(bboxes_xyxy: np.ndarray) -> np.ndarray:
