@@ -51,18 +51,34 @@ boxer-Isajjim/
 
 ## 설치
 
+> 아래 명령은 **모두 repo 루트(`boxer-Isajjim/`)에서** 실행한다.
+
 ```bash
 # 1) Python 의존성
 pip install -r requirements.txt
 
 # 2) Boxer 레포 클론 + 체크포인트 다운로드
+#    repo 루트에서 클론하면 ./boxer 에 받아진다. 이 위치가 BOXER_REPO_PATH의
+#    기본값이므로, 여기에 클론하면 BOXER_REPO_PATH를 따로 export할 필요가 없다.
 git clone https://github.com/facebookresearch/boxer.git
 cd boxer && bash scripts/download_ckpts.sh && cd ..
 
-# 3) 환경변수
-export BOXER_REPO_PATH=$PWD/boxer
-export BOXER_CHECKPOINT=$PWD/boxer/ckpts/boxernet_default.pt  # 실제 파일명 확인
+# 3) 다운로드된 체크포인트 파일명 확인
+#    파일명에 모델 구성 해시가 붙어 버전마다 다르므로, 직접 확인해야 한다.
+ls boxer/ckpts/*.ckpt
+#    예시 출력: boxer/ckpts/boxernet_hw960in4x6d768-3e37cfc4.ckpt
+
+# 4) 환경변수 — 위 ls로 확인한 "실제" 경로를 그대로 지정 (필수, 기본값 없음)
+export BOXER_CHECKPOINT="$PWD/boxer/ckpts/boxernet_hw960in4x6d768-3e37cfc4.ckpt"
+
+#    (선택) boxer를 repo 루트가 아닌 다른 곳에 클론했을 때만 지정한다.
+#    기본값은 ./boxer 이므로 위 2)대로 클론했다면 생략.
+# export BOXER_REPO_PATH=/abs/path/to/boxer
 ```
+
+> `BOXER_CHECKPOINT`을 설정하지 않으면 서버는 뜨지만 3D lifting이 비활성화되어
+> `width/depth/height/volume`이 모두 `0`으로 응답된다
+> (startup 로그에 `BoxerNet checkpoint not found` 경고 출력).
 
 추가 환경변수:
 
@@ -75,6 +91,8 @@ export BOXER_CHECKPOINT=$PWD/boxer/ckpts/boxernet_default.pt  # 실제 파일명
 | `DEPTH_BACKEND` | `depthpro` | `depthpro` (Apple, metric + 초점거리 출력) 또는 `da2` (Depth Anything V2, 가볍지만 초점거리 없음) |
 | `DEPTH_PRO_MODEL` | `apple/DepthPro-hf` | Depth Pro HF 가중치 |
 | `DEPTH_DA2_MODEL` | `depth-anything/Depth-Anything-V2-Small-hf` | DA V2 HF 가중치 |
+| `BOXER_CHECKPOINT` | **(필수, 기본값 없음)** | BoxerNet 체크포인트 절대 경로 (예: `.../boxer/ckpts/boxernet_hw960in4x6d768-3e37cfc4.ckpt`). 미설정 시 3D 치수가 모두 `0` |
+| `BOXER_REPO_PATH` | `./boxer` (repo 루트 기준) | 클론한 facebookresearch/boxer 경로. 기본 위치에 클론했다면 생략 가능 |
 | `ENABLE_MULTI_GPU` | `true` | 모든 GPU 자동 검출 |
 | `GPU_IDS` | (auto) | 예: `0,1,2,3` |
 | `CALLBACK_URL_TEMPLATE` | `https://api.isajjim.kro.kr/api/v1/estimates/{estimateId}/callback` | 비동기 결과 callback URL |

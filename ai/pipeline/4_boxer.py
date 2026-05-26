@@ -11,11 +11,13 @@ Wraps Meta's facebookresearch/boxer `BoxerNet`. Boxer expects:
 Boxer's output ObbTW yields **absolute metric** dimensions and volume directly,
 so no relative→absolute conversion is required downstream.
 
-Setup:
+Setup (run from repo root so ./boxer matches BOXER_REPO_PATH's default):
     git clone https://github.com/facebookresearch/boxer.git
-    cd boxer && bash scripts/download_ckpts.sh
-    export BOXER_REPO_PATH=/abs/path/to/boxer
-    export BOXER_CHECKPOINT=/abs/path/to/boxer/ckpts/boxernet_default.pt
+    cd boxer && bash scripts/download_ckpts.sh && cd ..
+    ls boxer/ckpts/*.ckpt   # filename carries a config hash; confirm it
+    # BOXER_CHECKPOINT is required (no default); point it at the actual .ckpt:
+    export BOXER_CHECKPOINT="$PWD/boxer/ckpts/boxernet_hw960in4x6d768-3e37cfc4.ckpt"
+    # BOXER_REPO_PATH defaults to ./boxer; only set it if cloned elsewhere.
 """
 
 import logging
@@ -79,7 +81,7 @@ class BoxerLifter:
         if not self.ckpt_path or not os.path.exists(self.ckpt_path):
             logger.warning(
                 f"BoxerNet checkpoint not found: {self.ckpt_path}. "
-                "Set BOXER_CHECKPOINT to the BoxerNet .pt file."
+                "Set BOXER_CHECKPOINT to the BoxerNet checkpoint (.ckpt) file."
             )
             return
         if not os.path.isdir(self.repo_path):

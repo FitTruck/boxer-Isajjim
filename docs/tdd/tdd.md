@@ -464,8 +464,8 @@ URL ─▶ ImageFetcher.fetch_async ─▶ PIL.Image (RGB)
 | `DEPTH_BACKEND` | `depthpro` | `ai/config.py:17` | `depthpro` 또는 `da2` |
 | `DEPTH_PRO_MODEL` | `apple/DepthPro-hf` | `ai/config.py:18` | HF repo id |
 | `DEPTH_DA2_MODEL` | `depth-anything/Depth-Anything-V2-Small-hf` | `ai/config.py:19` | HF repo id |
-| `BOXER_REPO_PATH` | `<repo>/boxer` | `ai/config.py:24` | `facebookresearch/boxer` 클론 경로 |
-| `BOXER_CHECKPOINT` | (없음) | `ai/config.py:28` | BoxerNet `.pt` 절대 경로 — **필수** |
+| `BOXER_REPO_PATH` | `<repo>/boxer` | `ai/config.py:27` | `facebookresearch/boxer` 클론 경로 (기본 위치에 클론 시 생략 가능) |
+| `BOXER_CHECKPOINT` | (없음) | `ai/config.py:31` | BoxerNet 체크포인트(`.ckpt`) 절대 경로 — **필수**. 파일명에 구성 해시가 붙어 버전마다 다름 (예: `boxernet_hw960in4x6d768-3e37cfc4.ckpt`) |
 | `DEVICES` | (없음) | `ai/config.py:34` | 예: `cuda:0,cuda:1` (최우선) |
 | `GPU_IDS` | (없음) | `ai/config.py:35` | 예: `0,1,2,3` → `cuda:N` 확장 |
 | `ENABLE_MULTI_GPU` | `true` | `ai/config.py:36` | false면 단일 GPU만 |
