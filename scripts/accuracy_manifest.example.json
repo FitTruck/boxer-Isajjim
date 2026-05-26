@@ -1,0 +1,18 @@
+{
+  "_comment": "Fill ground-truth dims (mm) you measured with a tape for objects clearly visible in each photo. 'objects' is optional; omit it for a focal/depth diagnostic-only run. label is matched case-insensitively against the OWLv2 label (substring either direction).",
+  "images": [
+    {
+      "path": "/home/agion427/boxer-Isajjim/samples/livingroom.jpg",
+      "objects": [
+        {"label": "sofa", "width_mm": 1850, "depth_mm": 900, "height_mm": 800},
+        {"label": "coffee table", "width_mm": 1100, "depth_mm": 550, "height_mm": 420}
+      ]
+    },
+    {
+      "url": "https://firebasestorage.googleapis.com/.../bedroom.jpg",
+      "objects": [
+        {"label": "bed", "width_mm": 1500, "depth_mm": 2000, "height_mm": 450}
+      ]
+    }
+  ]
+}

@@ -67,15 +67,21 @@ class FurniturePipeline:
         self.enable_3d = enable_3d
 
         # Lazy imports keep startup quick when only sub-features are exercised.
+        from ai.config import Config
         from ai.pipeline import (
             BoxerLifter,
             DepthEstimator,
             ImageFetcher,
             Owlv2Detector,
+            Sam3Detector,
         )
 
         self.fetcher = ImageFetcher()
-        self.detector = Owlv2Detector(device=device)
+        # 2D detector backend is swappable via DETECTOR_BACKEND (owlv2 | sam3).
+        if Config.DETECTOR_BACKEND == "sam3":
+            self.detector = Sam3Detector(device=device)
+        else:
+            self.detector = Owlv2Detector(device=device)
         self.depth_model: Optional[DepthEstimator] = None
         self.boxer: Optional[BoxerLifter] = None
         if enable_3d:

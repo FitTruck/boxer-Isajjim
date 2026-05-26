@@ -15,6 +15,14 @@ class Config:
     OWLV2_CHUNK_SIZE: int = int(os.environ.get("OWLV2_CHUNK_SIZE", "256"))
     OWLV2_CLASSES_CSV: Optional[str] = os.environ.get("OWLV2_CLASSES_CSV")
 
+    # ---------------- SAM3 detection (experimental alternative to OWLv2) ----------------
+    # Which 2D detector feeds BoxerNet: "owlv2" (default) | "sam3".
+    DETECTOR_BACKEND: str = os.environ.get("DETECTOR_BACKEND", "owlv2").lower()
+    SAM3_MODEL: str = os.environ.get("SAM3_MODEL", "facebook/sam3")
+    SAM3_CONFIDENCE: float = float(os.environ.get("SAM3_CONFIDENCE", "0.5"))
+    # Optional CSV (one furniture concept per line) overriding the built-in list.
+    SAM3_CONCEPTS_CSV: Optional[str] = os.environ.get("SAM3_CONCEPTS_CSV")
+
     # ---------------- Depth estimation ----------------
     # DEPTH_BACKEND: "depthpro" (default, metric + focal length) | "da2" (lighter fallback)
     DEPTH_BACKEND: str = os.environ.get("DEPTH_BACKEND", "depthpro").lower()

@@ -1,0 +1,7 @@
+{
+  "_comment": "Local furniture test images (M4/MPS run). GT dims omitted — diagnostic + detector A/B only.",
+  "images": [
+    {"path": "ai/imgs/img.png"},
+    {"path": "ai/imgs/img_1.png"}
+  ]
+}
