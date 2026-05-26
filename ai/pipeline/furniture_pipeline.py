@@ -8,12 +8,30 @@ Boxer outputs absolute metric dimensions, so no relative→absolute conversion i
 
 import asyncio
 import logging
+import sys
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+
+def _flush_logs() -> None:
+    """Force log handlers + stderr to flush.
+
+    GPU inference can abort the whole process at the C level (e.g.
+    'Cannot load symbol cublasLtCreate' / core dump), which bypasses Python
+    exception handling. Flushing after each stage guarantees the last printed
+    line pinpoints exactly which stage the process died in.
+    """
+    for handler in logging.getLogger().handlers:
+        try:
+            handler.flush()
+        except Exception:
+            pass
+    sys.stderr.flush()
 
 
 @dataclass
@@ -94,8 +112,22 @@ class FurniturePipeline:
         enable_3d: Optional[bool] = None,
     ) -> PipelineResult:
         use_3d = self.enable_3d if enable_3d is None else enable_3d
+        tag = f"img_id={image_id} dev={self.device}"
+        logger.info(
+            "[pipeline] %s start: size=%s use_3d=%s", tag, image.size, use_3d
+        )
 
+        logger.info("[pipeline] %s stage=OWLv2.detect ...", tag)
+        _flush_logs()
+        t0 = time.perf_counter()
         det = self.detector.detect(image)
+        logger.info(
+            "[pipeline] %s stage=OWLv2.detect done: %d boxes (%.2fs)",
+            tag,
+            len(det["boxes"]),
+            time.perf_counter() - t0,
+        )
+        _flush_logs()
         if len(det["boxes"]) == 0:
             return PipelineResult(image_id=image_id, image_url=image_url, objects=[])
 
@@ -103,7 +135,21 @@ class FurniturePipeline:
 
         obb_by_idx: Dict[int, Any] = {}
         if use_3d and self.boxer is not None and self.depth_model is not None:
+            logger.info("[pipeline] %s stage=Depth.estimate ...", tag)
+            _flush_logs()
+            t0 = time.perf_counter()
             depth_result = self.depth_model.estimate(image)
+            logger.info(
+                "[pipeline] %s stage=Depth.estimate done: focal_px=%s (%.2fs)",
+                tag,
+                getattr(depth_result, "focal_length_px", None),
+                time.perf_counter() - t0,
+            )
+            _flush_logs()
+
+            logger.info("[pipeline] %s stage=Boxer.lift (%d boxes) ...", tag, len(det["boxes"]))
+            _flush_logs()
+            t0 = time.perf_counter()
             obbs = self.boxer.lift(
                 image=image,
                 bboxes_xyxy=det["boxes"],
@@ -111,6 +157,13 @@ class FurniturePipeline:
                 depth=depth_result.depth,
                 focal_length_px=depth_result.focal_length_px,
             )
+            logger.info(
+                "[pipeline] %s stage=Boxer.lift done: %d obbs (%.2fs)",
+                tag,
+                len(obbs),
+                time.perf_counter() - t0,
+            )
+            _flush_logs()
             obb_by_idx = {obb.input_index: obb for obb in obbs}
 
         objects: List[DetectedObject] = []
@@ -130,6 +183,8 @@ class FurniturePipeline:
                     volume_m3=round(obb.volume_m3, 6) if obb else 0.0,
                 )
             )
+        logger.info("[pipeline] %s complete: %d objects", tag, len(objects))
+        _flush_logs()
         return PipelineResult(image_id=image_id, image_url=image_url, objects=objects)
 
     # ------------------------------------------------------------------
