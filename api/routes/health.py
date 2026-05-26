@@ -9,6 +9,16 @@ from api.config import device
 router = APIRouter()
 
 
+@router.get("/")
+async def root():
+    """Root liveness response so health/uptime probes hitting `/` get 200, not 404."""
+    return {
+        "service": "Boxer Furniture Analysis API",
+        "status": "ok",
+        "endpoints": {"health": "/health", "gpu_status": "/gpu-status", "docs": "/docs"},
+    }
+
+
 @router.get("/health")
 async def health_check():
     return {"status": "healthy", "device": str(device)}
