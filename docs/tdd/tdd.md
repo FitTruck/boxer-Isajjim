@@ -617,6 +617,89 @@ markers =
 
 ---
 
+## 12. 단일 이미지 3D 기하 최적화 + 검출기 비교 (2026-05)
+
+> callback 치수가 비현실적(예: 소파 `3.8m × 0.26m`)으로 나오던 문제를 추적한 결과,
+> 오차의 주범은 **검출기가 아니라 단일 이미지 3D lift의 카메라 자세(pose)** 였다.
+> 상세 실험 노트: `docs/experiments/owlv2-vs-sam3-and-geometry.md`.
+
+### 12.1 (핵심) 중력 정렬 pose — `ai/pipeline/4_boxer.py`
+
+BoxerNet은 넘겨받은 world←cam pose에서 중력을 유도한다
+(`boxernet.py`의 `gravity_align_T_world_cam(T_wc, z_grav=True)`, world gravity = `-Z`).
+기존에는 **identity pose**를 넘겨 모델이 "카메라가 중력축을 따라 천장/바닥을 본다"고
+오해 → 박스 방향이 붕괴했다. 공식 Omni3D/SUN-RGBD 단일 이미지 기본값(수평 정면 카메라 +
+중력 아래)으로 교체했다.
+
+```python
+# 카메라 Y-down → world Z-down (중력 -Z). 레벨 카메라의 기본 자세.
+_R_WORLD_FROM_CAM = np.array(
+    [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]], dtype=np.float32
+)
+
+# lift(): pose와 depth 포인트(sdp)를 같은 gravity-aligned world 프레임에 둔다.
+if gravity_down_cam is not None:
+    R_world_cam = self._R_world_cam_from_gravity(gravity_down_cam)  # GeoCalib 경로
+else:
+    R_world_cam = self._R_WORLD_FROM_CAM                            # 수평 기본값
+pose = self._pose_from_R(R_world_cam)
+sdp = self._depth_to_sdp(depth_r, cam_fx=fx, cam_fy=fy, cx=cx, cy=cy,
+                         R_world_cam=R_world_cam)
+```
+
+**실측 효과** (`img.png` 소파): `3812×262×1010mm`(깊이 26cm, 불가능) →
+`2628×703×1094mm`(현실적), 의자 높이 `1609 → 579mm`.
+
+### 12.2 focal 오추정 폴백 — `ai/pipeline/4_boxer.py`
+
+Depth Pro가 가끔 비정상 focal(초광각/초협각)을 반환 → metric 스케일이 붕괴한다.
+`focal/width`가 `[0.5, 2.5]` 밖이면 기본 FOV로 폴백한다.
+
+```python
+if focal_length_px:
+    ratio = float(focal_length_px) / W0
+    if not (0.5 <= ratio <= 2.5):
+        logger.warning("focal_px=%.0f implausible (focal/width=%.2f); using default FOV", ...)
+        focal_length_px = None   # → fx = fy = target * 0.75 기본 핀홀
+```
+
+### 12.3 GeoCalib per-image gravity + focal (opt-in) — `ai/pipeline/gravity_estimation.py`
+
+기울어진 사진은 12.1의 수평 기본값이 깨진다. GeoCalib(Veicht 2024)로 단일 이미지에서
+카메라 중력/focal을 추정해 `gravity_down_cam`으로 넘긴다. 기본 off, `--geocalib`로 on
+(서버 기본 경로엔 의존성/지연 추가 없음).
+
+```python
+res = self.model.calibrate(img_t)                       # GeoCalib
+up = res["gravity"].vec3d...                             # 레벨에서 ≈ [0, -1, 0]
+gravity_down = -up                                       # 카메라 기준 '아래'
+focal_px = float(res["camera"].f...)
+```
+
+`_R_world_cam_from_gravity(g)`는 `up = -g`, `forward = camZ의 수평투영`,
+`right = forward × up`로 회전을 구성 — 레벨(`g = +Y`)에서 정확히 `_R_WORLD_FROM_CAM`으로
+환원됨을 수식으로 검증했다. 검증 결과 테스트 2장 모두 GeoCalib가 "거의 수평"으로 판정 →
+기본값이 옳았음을 확인.
+
+### 12.4 검출기 백엔드 스위치 + OWLv2 vs SAM3 A/B — `DETECTOR_BACKEND`
+
+`Owlv2Detector`/`Sam3Detector`가 동일 `detect()` 계약(`{boxes, scores, classes, labels}`)을
+따르고, `DETECTOR_BACKEND=owlv2|sam3`로 교체된다(`furniture_pipeline.py`).
+
+```python
+if Config.DETECTOR_BACKEND == "sam3":
+    self.detector = Sam3Detector(device=device)   # facebook/sam3, 컨셉 프롬프트당 추론
+else:
+    self.detector = Owlv2Detector(device=device)  # 기본
+```
+
+**A/B 결론** (동일 depth + BoxerNet): 같은 객체의 **3D 치수는 OWLv2 ≈ SAM3로 사실상 동일**
+(tight mask가 치수를 개선하지 않음). SAM3는 오탐이 적고 고신뢰(0.96~0.98)지만 **30~100배
+느리고** recall이 낮다. → **프로덕션은 OWLv2 유지 + 후처리(threshold/NMS)** 권장.
+즉 치수 정확도의 병목은 검출기가 아니라 **기하/depth**다(12.1이 핵심 레버).
+
+---
+
 ## 부록 A. 파일 인덱스
 
 | 파일 | 핵심 심볼 | 역할 |
