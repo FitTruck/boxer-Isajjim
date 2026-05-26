@@ -232,7 +232,6 @@ class FurniturePipeline:
                             "width": o.width_mm,
                             "depth": o.depth_mm,
                             "height": o.height_mm,
-                            "volume": o.volume_m3,
                             "center_x": round(o.center_xy[0], 1),
                             "center_y": round(o.center_xy[1], 1),
                         }

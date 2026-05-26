@@ -15,7 +15,7 @@
   Meta `BoxerNet`이 직접 metric 단위의 3D OBB를 출력한다.
   → PLY 파일 생성·GCS 업로드·`ply_url` 응답 필드 모두 제거됨.
 - **입력**: Firebase Storage URL (다중 이미지) 또는 base64 단일 이미지.
-- **출력**: `{label, width(mm), depth(mm), height(mm), volume(m³), center_x, center_y}` 리스트.
+- **출력**: `{label, width(mm), depth(mm), height(mm), center_x, center_y}` 리스트.
 - **호출 모델**: 비동기 callback(`/analyze-furniture`) + 동기(`*-single`, `*-base64`, `/detect-furniture`).
 
 ---
@@ -536,7 +536,6 @@ markers =
           "width": 1850.0,
           "depth": 920.0,
           "height": 870.0,
-          "volume": 1.482,
           "center_x": 540.5,
           "center_y": 360.0
         }

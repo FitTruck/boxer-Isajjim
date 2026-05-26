@@ -77,7 +77,7 @@ export BOXER_CHECKPOINT="$PWD/boxer/ckpts/boxernet_hw960in4x6d768-3e37cfc4.ckpt"
 ```
 
 > `BOXER_CHECKPOINT`을 설정하지 않으면 서버는 뜨지만 3D lifting이 비활성화되어
-> `width/depth/height/volume`이 모두 `0`으로 응답된다
+> `width/depth/height`가 모두 `0`으로 응답된다
 > (startup 로그에 `BoxerNet checkpoint not found` 경고 출력).
 
 추가 환경변수:
@@ -147,7 +147,6 @@ uvicorn api:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info
           "width": 1850.0,
           "depth": 920.0,
           "height": 870.0,
-          "volume": 1.482,
           "center_x": 540.5,
           "center_y": 360.0
         }
@@ -199,7 +198,7 @@ ObbTW  ───→  bb3_diagonal (m), bb3_volumes (m³), bb3_center_world
                   + input_index (원본 detection 매칭용)
    │
    ▼
-JSON ( label, width_mm, depth_mm, height_mm, volume_m3, center_x, center_y )
+JSON ( label, width_mm, depth_mm, height_mm, center_x, center_y )
    │
    ▼
 Backend callback POST
