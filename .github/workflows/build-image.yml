@@ -20,9 +20,40 @@ env:
   SERVICE_ACCOUNT: isajjim-github-actions-sa@knu-2026-agion427.iam.gserviceaccount.com
 
 jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Check AI VM status
+        run: |
+          STATUS="$(gcloud compute instances describe "${{ env.INSTANCE_NAME }}" \
+            --zone="${{ env.ZONE }}" \
+            --format="value(status)")"
+
+          if [ "$STATUS" = "TERMINATED" ]; then
+            echo "::warning::VM is stopped. Please turn it on before deployment."
+          else
+            echo "AI VM status: $STATUS"
+          fi
+
   build:
     name: Build and Push
     runs-on: ubuntu-latest
+    needs: preflight
 
     permissions:
       contents: read
@@ -82,6 +113,22 @@ jobs:
 
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Check AI VM is running
+        run: |
+          STATUS="$(gcloud compute instances describe "${{ env.INSTANCE_NAME }}" \
+            --zone="${{ env.ZONE }}" \
+            --format="value(status)")"
+
+          if [ "$STATUS" = "TERMINATED" ]; then
+            echo "::error::AI VM is stopped. Start the VM before running deployment."
+            exit 1
+          elif [ "$STATUS" != "RUNNING" ]; then
+            echo "::error::AI VM is in unsupported status: $STATUS"
+            exit 1
+          fi
+
+          echo "AI VM is running."
 
       - name: Deploy image on VM
         run: |
