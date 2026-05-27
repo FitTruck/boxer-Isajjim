@@ -20,7 +20,22 @@ from ai.pipeline.dimension_bounds import sanitize_dims
 
 logger = logging.getLogger(__name__)
 
-_SANITIZE_DIMENSIONS = Config.SANITIZE_DIMENSIONS
+
+def _dims_mm(label: str, obb: Any) -> Tuple[float, float, float, float, List[str]]:
+    """Convert a BoxerObb to (width_mm, depth_mm, height_mm, volume_m3, corrections).
+
+    Applies per-class sanity clamping when `SANITIZE_DIMENSIONS` is on (read at
+    call time so the env toggle works without a re-import). `obb=None` (no 3D
+    lift) yields zeros.
+    """
+    if obb is None:
+        return 0.0, 0.0, 0.0, 0.0, []
+    w_mm, d_mm, h_mm = obb.width_m * 1000.0, obb.depth_m * 1000.0, obb.height_m * 1000.0
+    corrections: List[str] = []
+    if Config.SANITIZE_DIMENSIONS:
+        w_mm, d_mm, h_mm, corrections = sanitize_dims(label, w_mm, d_mm, h_mm)
+    volume_m3 = (w_mm / 1000.0) * (d_mm / 1000.0) * (h_mm / 1000.0)
+    return w_mm, d_mm, h_mm, volume_m3, corrections
 
 
 def _flush_logs() -> None:
@@ -180,18 +195,9 @@ class FurniturePipeline:
         objects: List[DetectedObject] = []
         for i, box in enumerate(det["boxes"]):
             cx, cy = (box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0
-            obb = obb_by_idx.get(i)
-            if obb:
-                w_mm = obb.width_m * 1000.0
-                d_mm = obb.depth_m * 1000.0
-                h_mm = obb.height_m * 1000.0
-                if _SANITIZE_DIMENSIONS:
-                    w_mm, d_mm, h_mm, corrections = sanitize_dims(labels[i], w_mm, d_mm, h_mm)
-                    for c in corrections:
-                        logger.info("[sanitize] %s %s", tag, c)
-                vol = (w_mm / 1000.0) * (d_mm / 1000.0) * (h_mm / 1000.0)
-            else:
-                w_mm = d_mm = h_mm = vol = 0.0
+            w_mm, d_mm, h_mm, volume_m3, corrections = _dims_mm(labels[i], obb_by_idx.get(i))
+            for c in corrections:
+                logger.info("[sanitize] %s %s", tag, c)
             objects.append(
                 DetectedObject(
                     image_id=image_id,
@@ -202,7 +208,7 @@ class FurniturePipeline:
                     width_mm=round(w_mm, 1),
                     depth_mm=round(d_mm, 1),
                     height_mm=round(h_mm, 1),
-                    volume_m3=round(vol, 6),
+                    volume_m3=round(volume_m3, 6),
                 )
             )
         logger.info("[pipeline] %s complete: %d objects", tag, len(objects))

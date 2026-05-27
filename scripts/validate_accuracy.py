@@ -155,6 +155,10 @@ def _match(objs: List[ObjectReport], gts: List[GroundTruth]) -> None:
 def _run_image(pipe, image, source: str, grav_est=None) -> ImageReport:
     import numpy as np
 
+    from ai.config import Config
+    from ai.pipeline.dimension_bounds import sanitize_dims
+
+    sanitize = Config.SANITIZE_DIMENSIONS
     w, h = image.size
     det = pipe.detector.detect(image)
     boxes = det["boxes"]
@@ -203,11 +207,7 @@ def _run_image(pipe, image, source: str, grav_est=None) -> ImageReport:
         obb = obb_by_idx.get(i)
         if obb:
             w_mm, d_mm, h_mm = obb.width_m * 1000.0, obb.depth_m * 1000.0, obb.height_m * 1000.0
-            from ai.config import Config
-
-            if Config.SANITIZE_DIMENSIONS:
-                from ai.pipeline.dimension_bounds import sanitize_dims
-
+            if sanitize:
                 w_mm, d_mm, h_mm, corr = sanitize_dims(labels[i], w_mm, d_mm, h_mm)
                 for c in corr:
                     log.info("  [sanitize] %s", c)
