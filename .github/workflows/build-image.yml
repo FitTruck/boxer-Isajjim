@@ -113,8 +113,14 @@ jobs:
 
           gcloud auth configure-docker "${{ env.ARTIFACT_REGISTRY }}" --quiet
           sudo docker pull "\$IMAGE"
-          sudo docker stop "\$CONTAINER_NAME" 2>/dev/null || true
-          sudo docker rm "\$CONTAINER_NAME" 2>/dev/null || true
+          sudo docker rm -f "\$CONTAINER_NAME" 2>/dev/null || true
+
+          PORT_8000_CONTAINERS="\$(sudo docker ps --filter "publish=8000" --format '{{.ID}} {{.Names}} {{.Ports}}' || true)"
+          if [ -n "\$PORT_8000_CONTAINERS" ]; then
+            echo "::error::Port 8000 is already published by another Docker container on the VM."
+            echo "\$PORT_8000_CONTAINERS"
+            exit 1
+          fi
 
           sudo docker run -d \
             --name "\$CONTAINER_NAME" \
