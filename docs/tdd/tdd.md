@@ -698,6 +698,29 @@ else:
 느리고** recall이 낮다. → **프로덕션은 OWLv2 유지 + 후처리(threshold/NMS)** 권장.
 즉 치수 정확도의 병목은 검출기가 아니라 **기하/depth**다(12.1이 핵심 레버).
 
+### 12.5 클래스별 치수 sanity 보정 — `ai/pipeline/dimension_bounds.py`
+
+12.1~12.3으로도 어려운 장면(대형·사선 침대 등)에선 BoxerNet이 물리적으로 불가능한
+치수(예: 침대 높이 2.4m)를 내놓는다. 검출 taxonomy가 고정이므로 **클래스별 물리 범위로
+보정**한다: 범위 안이면 유지, 살짝 벗어나면 가장 가까운 경계로 clamp, 심하게 벗어나면
+(`< 0.5·min` 또는 `> 2·max`) 클래스 표준값(범위 중앙)으로 대체. 수평축(width/depth)은
+서로 바뀔 수 있어 큰 값=`long`, 작은 값=`short`로 정렬해 footprint로 검사하고, 수직축
+(height)은 중력 기준이라 그대로 검사한다. 보정은 모두 `[sanitize]` 로그로 남겨 빈도를
+모니터링한다(보정률이 높으면 depth/geometry를 더 손봐야 한다는 신호).
+
+```python
+# OWLv2 어휘 95종 전부 커버(91 bounded + 비큐보이드 8종 통과). 한국 규격 반영:
+# 매트리스 길이~2000mm, 장롱 자(303mm) 단위, KS 책상/식탁 높이 ~700-750mm.
+"bed": {"long": (1950, 2150), "short": (1000, 1900), "height": (200, 700)},
+"wardrobe": {"long": (600, 3700), "short": (550, 700), "height": (1700, 2300)},
+
+w_mm, d_mm, h_mm, corrections = sanitize_dims(label, w_mm, d_mm, h_mm)  # process_pil 후처리
+```
+
+검증(실측): bed `2062×1372×2375` → `2062×1372×450mm`, desk height `1381 → 760mm`.
+`SANITIZE_DIMENSIONS` env(기본 on)로 끌 수 있다. 한계: prior 보정이라 부피 견적엔
+실용적이나 개별 "측정" 정확도가 오른 건 아니며, 보정률이 모델 약점을 가릴 수 있다.
+
 ---
 
 ## 부록 A. 파일 인덱스

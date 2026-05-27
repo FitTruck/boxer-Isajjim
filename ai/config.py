@@ -31,6 +31,9 @@ class Config:
         "DEPTH_DA2_MODEL", "depth-anything/Depth-Anything-V2-Small-hf"
     )
 
+    # Clamp BoxerNet output dims to per-class physical ranges (ai/pipeline/dimension_bounds.py).
+    SANITIZE_DIMENSIONS: bool = os.environ.get("SANITIZE_DIMENSIONS", "true").lower() == "true"
+
     # ---------------- Boxer (3D OBB lifting) ----------------
     BOXER_REPO_PATH: str = os.environ.get(
         "BOXER_REPO_PATH",

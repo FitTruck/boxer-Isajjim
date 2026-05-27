@@ -15,7 +15,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
 
+from ai.config import Config
+from ai.pipeline.dimension_bounds import sanitize_dims
+
 logger = logging.getLogger(__name__)
+
+_SANITIZE_DIMENSIONS = Config.SANITIZE_DIMENSIONS
 
 
 def _flush_logs() -> None:
@@ -176,6 +181,17 @@ class FurniturePipeline:
         for i, box in enumerate(det["boxes"]):
             cx, cy = (box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0
             obb = obb_by_idx.get(i)
+            if obb:
+                w_mm = obb.width_m * 1000.0
+                d_mm = obb.depth_m * 1000.0
+                h_mm = obb.height_m * 1000.0
+                if _SANITIZE_DIMENSIONS:
+                    w_mm, d_mm, h_mm, corrections = sanitize_dims(labels[i], w_mm, d_mm, h_mm)
+                    for c in corrections:
+                        logger.info("[sanitize] %s %s", tag, c)
+                vol = (w_mm / 1000.0) * (d_mm / 1000.0) * (h_mm / 1000.0)
+            else:
+                w_mm = d_mm = h_mm = vol = 0.0
             objects.append(
                 DetectedObject(
                     image_id=image_id,
@@ -183,10 +199,10 @@ class FurniturePipeline:
                     confidence=float(det["scores"][i]),
                     bbox_xyxy=[float(v) for v in box],
                     center_xy=(float(cx), float(cy)),
-                    width_mm=round(obb.width_m * 1000.0, 1) if obb else 0.0,
-                    depth_mm=round(obb.depth_m * 1000.0, 1) if obb else 0.0,
-                    height_mm=round(obb.height_m * 1000.0, 1) if obb else 0.0,
-                    volume_m3=round(obb.volume_m3, 6) if obb else 0.0,
+                    width_mm=round(w_mm, 1),
+                    depth_mm=round(d_mm, 1),
+                    height_mm=round(h_mm, 1),
+                    volume_m3=round(vol, 6),
                 )
             )
         logger.info("[pipeline] %s complete: %d objects", tag, len(objects))

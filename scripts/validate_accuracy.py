@@ -201,10 +201,22 @@ def _run_image(pipe, image, source: str, grav_est=None) -> ImageReport:
         med = float(np.median(region)) if region.size else None
 
         obb = obb_by_idx.get(i)
+        if obb:
+            w_mm, d_mm, h_mm = obb.width_m * 1000.0, obb.depth_m * 1000.0, obb.height_m * 1000.0
+            from ai.config import Config
+
+            if Config.SANITIZE_DIMENSIONS:
+                from ai.pipeline.dimension_bounds import sanitize_dims
+
+                w_mm, d_mm, h_mm, corr = sanitize_dims(labels[i], w_mm, d_mm, h_mm)
+                for c in corr:
+                    log.info("  [sanitize] %s", c)
+        else:
+            w_mm = d_mm = h_mm = 0.0
         pred = {
-            "width_mm": round(obb.width_m * 1000.0, 1) if obb else 0.0,
-            "depth_mm": round(obb.depth_m * 1000.0, 1) if obb else 0.0,
-            "height_mm": round(obb.height_m * 1000.0, 1) if obb else 0.0,
+            "width_mm": round(w_mm, 1),
+            "depth_mm": round(d_mm, 1),
+            "height_mm": round(h_mm, 1),
         }
         rep.objects.append(
             ObjectReport(
