@@ -9,8 +9,25 @@ htmlcov/
 venv/
 env/
 
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
 # Boxer is mounted at runtime so checkpoint changes do not require rebuilding.
 boxer/
+
+# Model checkpoints / weights
+checkpoints/
+*.pt
+*.pth
+*.safetensors
 
 # Local/generated artifacts
 *.tar

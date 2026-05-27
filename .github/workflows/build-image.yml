@@ -1,0 +1,61 @@
+name: Build AI Docker Image
+
+on:
+  push:
+    branches:
+      - infra-dev
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: knu-2026-agion427
+  REGION: asia-northeast3
+  REPOSITORY: isajjim-ai
+  IMAGE_NAME: boxer-isajjim
+  ARTIFACT_REGISTRY: asia-northeast3-docker.pkg.dev
+  WORKLOAD_IDENTITY_PROVIDER: projects/675009148577/locations/global/workloadIdentityPools/isajjim-github-pool/providers/isajjim-github-provider
+  SERVICE_ACCOUNT: isajjim-github-actions-sa@knu-2026-agion427.iam.gserviceaccount.com
+
+jobs:
+  build:
+    name: Build and Push
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }} --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Print image references
+        run: |
+          echo "${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest"
