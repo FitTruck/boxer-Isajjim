@@ -3,7 +3,7 @@ name: Build AI Docker Image
 on:
   push:
     branches:
-      - infra-dev
+      - main
   workflow_dispatch:
 
 env:
