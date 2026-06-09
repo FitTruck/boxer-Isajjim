@@ -14,9 +14,8 @@
 
 import asyncio
 import logging
-import time
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -28,7 +27,6 @@ class _Slot:
     available: bool = True
     task_id: Optional[str] = None
     pipeline: object = None
-    last_used: float = field(default_factory=time.time)
 
 
 class GPUPoolManager:
@@ -66,9 +64,6 @@ class GPUPoolManager:
     def has_pipeline(self, device: str) -> bool:
         return device in self._slots and self._slots[device].pipeline is not None
 
-    def get_pipeline(self, device: str) -> object:
-        return self._slots[device].pipeline
-
     # ------------------------------------------------------------------
     # Acquire / release  (semaphore-based, no polling)
     # ------------------------------------------------------------------
@@ -88,7 +83,6 @@ class GPUPoolManager:
                     if slot.available:
                         slot.available = False
                         slot.task_id = task_id
-                        slot.last_used = time.time()
                         return device
         except Exception:
             self._sem.release()

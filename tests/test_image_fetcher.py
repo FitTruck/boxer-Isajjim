@@ -1,7 +1,6 @@
 """Unit tests for ImageFetcher (network calls mocked)."""
 
 import io
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from PIL import Image
