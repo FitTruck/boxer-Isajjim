@@ -40,6 +40,10 @@ class Config:
         os.path.join(os.path.dirname(os.path.dirname(__file__)), "boxer"),
     )
     BOXER_CHECKPOINT: Optional[str] = os.environ.get("BOXER_CHECKPOINT")
+    # Inference autocast precision for BoxerNet. "auto" picks per GPU
+    # architecture (bf16 on Ampere+/L4, fp16 on Turing/T4, fp32 otherwise);
+    # override with "bf16" | "fp16" | "fp32". See ai/gpu/precision.py.
+    BOXER_AUTOCAST: str = os.environ.get("BOXER_AUTOCAST", "auto").lower()
 
     # ---------------- Device pool ----------------
     # Explicit override: DEVICES="cuda:0,cuda:1" / "mps" / "cpu" (highest precedence)
