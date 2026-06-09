@@ -24,7 +24,9 @@ ultralytics>=8.3.0            # YOLOE-26x-seg
 # DepthProForDepthEstimation.  We deliberately avoid the legacy
 # `transformers.pipelines` import (broken in some torch/transformers dev
 # combinations) and use only Auto* classes for both DepthPro + DA V2.
-transformers>=4.46.0
+# Keep this aligned with Docker's torch 2.6.0: transformers 5.10.2 imports
+# torch.float8_e8m0fnu, which is unavailable in that PyTorch release.
+transformers==4.52.4
 huggingface-hub>=0.24.0
 
 # ---- Boxer 3D OBB lifter (cloned separately, see README) ----
