@@ -30,7 +30,8 @@ RUN python -m pip install --upgrade pip setuptools wheel \
     --index-url "${PYTORCH_CUDA_INDEX_URL}" \
     "torch==${TORCH_VERSION}" \
     "torchvision==${TORCHVISION_VERSION}" \
-    && python -m pip install -r requirements.txt
+    && python -m pip install -r requirements.txt \
+    && python -c "from transformers import AutoImageProcessor, AutoModelForDepthEstimation, Owlv2ForObjectDetection, Owlv2Processor"
 
 COPY . .
 COPY docker/entrypoint.sh /usr/local/bin/boxer-entrypoint
