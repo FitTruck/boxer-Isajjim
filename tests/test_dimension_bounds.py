@@ -44,10 +44,21 @@ def test_unknown_class_passthrough():
 
 
 def test_noncuboidal_class_passthrough():
-    assert "curtain" in _SKIP
-    w, d, h, corr = sanitize_dims("curtain", 5000, 10, 9000)
+    assert "plant" in _SKIP
+    w, d, h, corr = sanitize_dims("plant", 5000, 10, 9000)
     assert (w, d, h) == (5000, 10, 9000)
     assert corr == []
+
+
+def test_curtain_depth_clamped_thin():
+    # Curtain left _SKIP and gained a thin-depth bound: an inflated depth is
+    # pulled down to the class-typical thin value, a genuinely thin depth is kept.
+    assert "curtain" not in _SKIP
+    _, d_severe, _, corr = sanitize_dims("curtain", 1800, 600, 2000)
+    assert d_severe == pytest.approx(65.0)  # 600 > 2*120 -> (10+120)/2
+    assert any("severe" in c for c in corr)
+    _, d_thin, _, _ = sanitize_dims("curtain", 1800, 80, 2000)
+    assert d_thin == 80
 
 
 def test_label_is_case_insensitive():

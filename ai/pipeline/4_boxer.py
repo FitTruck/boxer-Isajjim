@@ -31,6 +31,7 @@ import torch
 from PIL import Image
 
 from ai.config import Config
+from ai.gpu.precision import autocast_label, select_autocast_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,9 @@ class BoxerLifter:
         self.net = None
         self.CameraTW = None
         self.PoseTW = None
+        # Resolved in _load() once the device is pinned: bf16 on Ampere+/L4,
+        # fp16 on Turing/T4, None (fp32) elsewhere. None until loaded.
+        self.autocast_dtype: Optional[torch.dtype] = None
         self._load()
 
     @staticmethod
@@ -113,6 +117,19 @@ class BoxerLifter:
             self.net = self.net.to(self.device)
             self.net.device = self.device
 
+        # Pick the inference precision for THIS GPU (T4 -> fp16, L4 -> bf16, ...).
+        self.autocast_dtype = select_autocast_dtype(self.device, Config.BOXER_AUTOCAST)
+        if self.device.startswith("cuda"):
+            try:
+                gpu_name = torch.cuda.get_device_name(self.device)
+            except Exception:
+                gpu_name = self.device
+            logger.info(
+                "BoxerNet inference precision on %s: %s autocast",
+                gpu_name,
+                autocast_label(self.autocast_dtype),
+            )
+
     def lift(
         self,
         image: Image.Image,
@@ -138,7 +155,57 @@ class BoxerLifter:
         """
         if self.net is None or len(bboxes_xyxy) == 0:
             return []
+        datum, _cam, _pose, _img_t = self._prepare_datum(
+            image, bboxes_xyxy, depth, focal_length_px, gravity_down_cam
+        )
+        output = self._forward(datum)
+        obb_w = output["obbs_pr_w"].cpu()[0]  # (M, 165)
+        return self._to_results(obb_w, labels)
 
+    def lift_obbs(
+        self,
+        image: Image.Image,
+        bboxes_xyxy: np.ndarray,
+        depth: np.ndarray,
+        focal_length_px: Optional[float] = None,
+        gravity_down_cam: Optional[np.ndarray] = None,
+    ):
+        """Like :meth:`lift` but return the raw ``ObbTW`` plus the exact camera,
+        pose, and resized image tensor used for inference.
+
+        This lets callers re-project the 3D OBB wireframes back onto the image
+        (visualization / debugging) using the *same* intrinsics and gravity
+        frame the network saw. Returns ``(obb_w, cam, pose, img_t)`` with every
+        tensor on CPU (ready for ``utils.image.draw_bb3s``), or ``None`` when the
+        net is unavailable or there are no detections.
+        """
+        if self.net is None or len(bboxes_xyxy) == 0:
+            return None
+        datum, cam, pose, img_t = self._prepare_datum(
+            image, bboxes_xyxy, depth, focal_length_px, gravity_down_cam
+        )
+        output = self._forward(datum)
+        obb_w = output["obbs_pr_w"].cpu()[0]  # (M, 165)
+        return obb_w, cam.to("cpu"), pose.to("cpu"), img_t.cpu()
+
+    # ------------------------------------------------------------------
+    # Inference internals (shared by lift / lift_obbs)
+    # ------------------------------------------------------------------
+    def _prepare_datum(
+        self,
+        image: Image.Image,
+        bboxes_xyxy: np.ndarray,
+        depth: np.ndarray,
+        focal_length_px: Optional[float],
+        gravity_down_cam: Optional[np.ndarray],
+    ):
+        """Build the BoxerNet input ``datum`` + ``CameraTW`` + ``PoseTW``.
+
+        Centralizes the square-resize, focal sanity check, intrinsic scaling,
+        gravity-aligned world rotation, and semi-dense point back-projection so
+        that :meth:`lift` and :meth:`lift_obbs` cannot drift apart. Returns
+        ``(datum, cam, pose, img_t)``.
+        """
         target = int(self.net.hw)  # boxer expects square hw x hw
         W0, H0 = image.width, image.height
         sx, sy = target / W0, target / H0
@@ -196,16 +263,20 @@ class BoxerLifter:
             "sdp_w": torch.from_numpy(sdp).to(self.device).float(),
             "bb2d": torch.from_numpy(bb2d).to(self.device).float(),
         }
+        return datum, cam, pose, img_t
 
-        # autocast is only safe for CUDA with bf16; MPS / CPU run in fp32.
-        if self.device.startswith("cuda") and torch.cuda.is_bf16_supported():
-            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                output = self.net.forward(datum)
-        else:
-            output = self.net.forward(datum)
+    def _forward(self, datum: dict):
+        """Run ``BoxerNet.forward`` under the GPU-appropriate autocast precision.
 
-        obb_w = output["obbs_pr_w"].cpu()[0]  # (M, 165)
-        return self._to_results(obb_w, labels)
+        ``self.autocast_dtype`` is resolved once at load from the GPU's compute
+        capability (bf16 on Ampere+/L4, fp16 on Turing/T4, None=fp32 on
+        MPS/CPU/pre-Volta); see ``ai.gpu.precision``. Only CUDA yields a
+        non-None dtype, so ``device_type="cuda"`` is always correct here.
+        """
+        if self.autocast_dtype is not None:
+            with torch.autocast(device_type="cuda", dtype=self.autocast_dtype):
+                return self.net.forward(datum)
+        return self.net.forward(datum)
 
     # ------------------------------------------------------------------
     # Input helpers
@@ -323,7 +394,7 @@ class BoxerLifter:
     def _to_results(self, obb_w, labels: List[str]) -> List[BoxerObb]:
         """Convert ObbTW rows into `BoxerObb`, filtered by confidence."""
         probs = obb_w.prob.squeeze(-1).numpy()  # (M,)
-        diag = obb_w.bb3_diagonal.numpy()  # (M, 3)  -> (w, h, d) in meters
+        diag = obb_w.bb3_diagonal.numpy()  # (M, 3): (footprint_a, footprint_b, vertical)
         volumes = obb_w.bb3_volumes.squeeze(-1).numpy()  # (M,)
         centers = obb_w.bb3_center_world.numpy()  # (M, 3)
 
@@ -333,12 +404,17 @@ class BoxerLifter:
                 break
             if probs[i] < self.conf_threshold:
                 continue
-            w_m, h_m, d_m = diag[i].tolist()
+            # Boxer's yaw rotates about gravity, so the 3rd bb3_diagonal component
+            # is the true vertical extent (height); the first two are the
+            # horizontal footprint pair that interchange under the 90-degree yaw
+            # symmetry (cf. boxer align_boxes_r90). Mislabeling these would feed
+            # the wrong axes into the per-class dimension bounds downstream.
+            foot_a, foot_b, vert = diag[i].tolist()
             out.append(
                 BoxerObb(
-                    width_m=float(w_m),
-                    depth_m=float(d_m),
-                    height_m=float(h_m),
+                    width_m=float(foot_a),
+                    depth_m=float(foot_b),
+                    height_m=float(vert),
                     volume_m3=float(volumes[i]),
                     center_world=centers[i].tolist(),
                     confidence=float(probs[i]),

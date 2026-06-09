@@ -50,9 +50,9 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "recliner": {"long": (700, 1100), "short": (800, 1100), "height": (700, 1100)},
     "chair": {"long": (400, 750), "short": (400, 750), "height": (700, 1200)},
     "armchair": {"long": (600, 1000), "short": (600, 1000), "height": (700, 1100)},
-    "rocking chair": {"long": (500, 800), "short": (600, 1100), "height": (700, 1200)},
+    "rocking chair": {"long": (600, 1100), "short": (500, 700), "height": (700, 1200)},
     "folding chair": {"long": (400, 550), "short": (400, 600), "height": (750, 1000)},
-    "deck chair": {"long": (550, 700), "short": (900, 1700), "height": (600, 1100)},
+    "deck chair": {"long": (900, 1900), "short": (500, 700), "height": (600, 1100)},
     "highchair": {"long": (400, 600), "short": (400, 600), "height": (800, 1100)},
     "bench": {"long": (900, 2000), "short": (300, 600), "height": (350, 900)},
     "stool": {"long": (300, 600), "short": (300, 600), "height": (350, 800)},
@@ -76,7 +76,7 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "armoire": {"long": (800, 3700), "short": (500, 700), "height": (1700, 2300)},
     "cabinet": {"long": (400, 1200), "short": (300, 600), "height": (600, 2000)},
     "cupboard": {"long": (500, 1200), "short": (350, 650), "height": (700, 2100)},
-    "file cabinet": {"long": (350, 600), "short": (450, 750), "height": (650, 1400)},
+    "file cabinet": {"long": (450, 750), "short": (350, 600), "height": (650, 1400)},
     "locker": {"long": (300, 900), "short": (400, 600), "height": (1500, 2000)},
     "bookcase": {"long": (600, 1200), "short": (250, 450), "height": (800, 2400)},
     "bookshelf": {"long": (400, 1200), "short": (250, 450), "height": (700, 2400)},
@@ -114,7 +114,6 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "stereo (sound system)": {"long": (200, 450), "short": (250, 400), "height": (80, 300)},
     "subwoofer": {"long": (250, 450), "short": (250, 450), "height": (250, 500)},
     "telephone": {"long": (100, 250), "short": (50, 200), "height": (50, 250)},
-    "cellular telephone": {"long": (60, 90), "short": (5, 15), "height": (120, 170)},
     # ---- Lighting / wall decor ----
     "lamp": {"long": (100, 600), "short": (100, 600), "height": (200, 700)},
     "table lamp": {"long": (100, 450), "short": (100, 450), "height": (250, 700)},
@@ -125,6 +124,10 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "poster": {"long": (300, 1500), "short": (2, 30), "height": (400, 1500)},
     "clock": {"long": (150, 500), "short": (20, 120), "height": (150, 500)},
     "wall clock": {"long": (200, 600), "short": (20, 80), "height": (200, 600)},
+    # ---- Window treatments (thin fabric: small depth) ----
+    # A hanging curtain is wide and tall but only fabric-thin in depth, so an
+    # inflated BoxerNet depth must be pulled down hard.
+    "curtain": {"long": (800, 4000), "short": (10, 120), "height": (900, 2800)},
     # ---- Containers / decor ----
     "vase": {"long": (80, 350), "short": (80, 350), "height": (150, 600)},
     "flowerpot": {"long": (120, 500), "short": (120, 500), "height": (120, 500)},
@@ -132,7 +135,7 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "fan": {"long": (250, 600), "short": (250, 600), "height": (250, 1400)},
     # ---- Bathroom fixtures ----
     "bathtub": {"long": (1400, 1800), "short": (700, 800), "height": (400, 650)},
-    "toilet": {"long": (350, 500), "short": (600, 750), "height": (700, 1000)},
+    "toilet": {"long": (600, 750), "short": (350, 500), "height": (700, 1000)},
     "sink": {"long": (400, 700), "short": (350, 550), "height": (150, 250)},
     "kitchen sink": {"long": (500, 1000), "short": (400, 600), "height": (150, 300)},
     "washbasin": {"long": (400, 700), "short": (350, 550), "height": (150, 250)},
@@ -142,7 +145,7 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
 # Genuinely non-cuboidal / amorphous classes: a 3D box is meaningless, so we pass
 # them through unchanged rather than impose misleading bounds.
 _SKIP = {
-    "plant", "tree", "blanket", "bedspread", "quilt", "curtain",
+    "plant", "tree", "blanket", "bedspread", "quilt",
     "sculpture", "figurine",
 }
 
