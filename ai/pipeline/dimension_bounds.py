@@ -113,7 +113,6 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "speaker (stero equipment)": {"long": (150, 400), "short": (150, 350), "height": (200, 700)},
     "stereo (sound system)": {"long": (200, 450), "short": (250, 400), "height": (80, 300)},
     "subwoofer": {"long": (250, 450), "short": (250, 450), "height": (250, 500)},
-    "telephone": {"long": (100, 250), "short": (50, 200), "height": (50, 250)},
     # ---- Lighting / wall decor ----
     "lamp": {"long": (100, 600), "short": (100, 600), "height": (200, 700)},
     "table lamp": {"long": (100, 450), "short": (100, 450), "height": (250, 700)},
