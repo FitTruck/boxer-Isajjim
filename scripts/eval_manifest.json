@@ -1,0 +1,22 @@
+{
+  "_gt_provenance": "objects = Tier-2 approximate GT from EXTERNAL standards only (manufacturer specs / caption-confirmed size classes), independent of dimension_bounds priors. height_mm null = axis not pinned by the standard (excluded from per-axis metrics). 35.png is byte-identical to 31.png (md5 43e855be) — kept for cache completeness but excluded from statistics.",
+  "images": [
+    {"path": "ai/imgs/31.png", "split": "dev"},
+    {"path": "ai/imgs/33.png", "split": "dev", "objects": [
+      {"label": "bed", "width_mm": 2000, "depth_mm": 1600, "height_mm": null,
+       "_src": "photo caption '매트리스 K 사이즈' -> Korean K 1600x2000; platform frame margin ~5%; height not pinned"}
+    ]},
+    {"path": "ai/imgs/35.png", "split": "dup31"},
+    {"path": "ai/imgs/36.png", "split": "dev", "objects": [
+      {"label": "automatic washer", "width_mm": 796, "depth_mm": 686, "height_mm": 984,
+       "_src": "Samsung Grande/Bespoke 21kg drum class 686x984x796 (samsung.com), tol ~5%"},
+      {"label": "washer dryer", "width_mm": 844, "depth_mm": 686, "height_mm": 984,
+       "_src": "Samsung heat-pump dryer 16-17kg 686x984x844 (samsung.com), tol ~9%; bbox aspect 1.38 = single unit, not the stacked pair"}
+    ]},
+    {"path": "ai/imgs/img.png", "split": "holdout"},
+    {"path": "ai/imgs/img_1.png", "split": "holdout", "objects": [
+      {"label": "tv", "width_mm": 1450, "depth_mm": 60, "height_mm": 830,
+       "_src": "wall-mounted 65-inch class panel 1450x830x60 (Danawa specs), tol ~10%"}
+    ]}
+  ]
+}

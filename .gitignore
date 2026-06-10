@@ -34,3 +34,5 @@ checkpoints/
 # Outputs
 outputs/
 *.log
+
+scripts/.eval_cache/
