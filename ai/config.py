@@ -33,6 +33,9 @@ class Config:
 
     # Clamp BoxerNet output dims to per-class physical ranges (ai/pipeline/dimension_bounds.py).
     SANITIZE_DIMENSIONS: bool = os.environ.get("SANITIZE_DIMENSIONS", "true").lower() == "true"
+    # SANITIZE_MODE: "clamp" (legacy binary clamp/replace) | "fused"
+    # (prob-weighted continuous prior fusion + aspect-preserving scale branch).
+    SANITIZE_MODE: str = os.environ.get("SANITIZE_MODE", "clamp").lower()
 
     # ---------------- Boxer (3D OBB lifting) ----------------
     BOXER_REPO_PATH: str = os.environ.get(
