@@ -33,6 +33,26 @@ class Config:
 
     # Clamp BoxerNet output dims to per-class physical ranges (ai/pipeline/dimension_bounds.py).
     SANITIZE_DIMENSIONS: bool = os.environ.get("SANITIZE_DIMENSIONS", "true").lower() == "true"
+    # SANITIZE_MODE: "clamp" (legacy binary clamp/replace) | "fused"
+    # (prob-weighted continuous prior fusion + aspect-preserving scale branch).
+    SANITIZE_MODE: str = os.environ.get("SANITIZE_MODE", "clamp").lower()
+
+    # ---------------- sdp (semi-dense 3D points fed to BoxerNet) ----------------
+    # SDP_SOURCE: "resized" (legacy: back-project the square-resized depth map)
+    #             | "native" (back-project the original-resolution depth map with
+    #               the original intrinsics — same 3D geometry, but free of
+    #               resize interpolation artifacts at depth discontinuities)
+    # SDP_INTERP: depth resize interpolation for the "resized" source:
+    #             "bilinear" (legacy) | "nearest" (no value mixing at edges)
+    # SDP_TARGET_POINTS: approximate sdp point count; the sampling stride is
+    #             derived from it. 14400 reproduces the legacy stride-8 grid.
+    # NOTE: 2026-06-10 ablation (scripts/analyze_ablation.py) found NO variant
+    # with a measurable accuracy effect on MPS/fp32 — BoxerNet's 16x16
+    # patch-median sdp aggregation absorbs interpolation/density differences.
+    # Kept as switches for re-validation on production GPUs (fp16/bf16).
+    SDP_SOURCE: str = os.environ.get("SDP_SOURCE", "resized").lower()
+    SDP_INTERP: str = os.environ.get("SDP_INTERP", "bilinear").lower()
+    SDP_TARGET_POINTS: int = int(os.environ.get("SDP_TARGET_POINTS", "14400"))
 
     # ---------------- Boxer (3D OBB lifting) ----------------
     BOXER_REPO_PATH: str = os.environ.get(

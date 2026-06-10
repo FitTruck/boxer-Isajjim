@@ -33,7 +33,14 @@ def _dims_mm(label: str, obb: Any) -> Tuple[float, float, float, float, List[str
     w_mm, d_mm, h_mm = obb.width_m * 1000.0, obb.depth_m * 1000.0, obb.height_m * 1000.0
     corrections: List[str] = []
     if Config.SANITIZE_DIMENSIONS:
-        w_mm, d_mm, h_mm, corrections = sanitize_dims(label, w_mm, d_mm, h_mm)
+        w_mm, d_mm, h_mm, corrections = sanitize_dims(
+            label,
+            w_mm,
+            d_mm,
+            h_mm,
+            prob=getattr(obb, "confidence", None),
+            mode=Config.SANITIZE_MODE,
+        )
     volume_m3 = (w_mm / 1000.0) * (d_mm / 1000.0) * (h_mm / 1000.0)
     return w_mm, d_mm, h_mm, volume_m3, corrections
 

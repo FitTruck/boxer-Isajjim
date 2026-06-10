@@ -19,6 +19,7 @@ not just a band-aid; corrections are logged so the rate can be monitored.
 """
 
 import logging
+import math
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -84,9 +85,12 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "piano": {"long": (1300, 1600), "short": (500, 700), "height": (1000, 1400)},
     # ---- Large appliances ----
     "refrigerator": {"long": (550, 1000), "short": (550, 850), "height": (1300, 2000)},
-    "automatic washer": {"long": (550, 700), "short": (550, 700), "height": (800, 1000)},
-    "washing machine": {"long": (550, 700), "short": (550, 700), "height": (800, 1000)},
-    "washer dryer": {"long": (550, 720), "short": (550, 720), "height": (800, 1900)},
+    # KR large-capacity drum washers (Samsung Grande/Bespoke 21kg+: 686x984,
+    # body depth 796-840mm incl. door) exceed the old 700mm cap -> long up to 830.
+    "automatic washer": {"long": (550, 830), "short": (550, 700), "height": (800, 1000)},
+    "washing machine": {"long": (550, 830), "short": (550, 700), "height": (800, 1000)},
+    # Heat-pump dryers 16-17kg run 686x984x844 -> long up to 880.
+    "washer dryer": {"long": (550, 880), "short": (550, 720), "height": (800, 1900)},
     "dishwasher": {"long": (550, 650), "short": (550, 650), "height": (800, 900)},
     "oven": {"long": (550, 750), "short": (550, 700), "height": (550, 950)},
     "stove": {"long": (500, 900), "short": (500, 700), "height": (450, 950)},
@@ -105,8 +109,10 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "kettle": {"long": (150, 300), "short": (150, 250), "height": (180, 300)},
     "teakettle": {"long": (150, 300), "short": (150, 250), "height": (180, 300)},
     # ---- Electronics ----
-    "tv": {"long": (700, 1800), "short": (40, 150), "height": (400, 800)},
-    "television set": {"long": (700, 1800), "short": (40, 150), "height": (400, 800)},
+    # Panel sizes 32"-85": width ~720-1890mm, height ~420-1090mm (65" = 1450x830,
+    # Danawa specs). The old 800mm height cap clipped correct 65"+ predictions.
+    "tv": {"long": (700, 1950), "short": (40, 150), "height": (400, 950)},
+    "television set": {"long": (700, 1950), "short": (40, 150), "height": (400, 950)},
     "computer monitor": {"long": (450, 900), "short": (50, 250), "height": (300, 600)},
     "laptop computer": {"long": (250, 400), "short": (180, 300), "height": (10, 250)},
     "printer": {"long": (350, 550), "short": (300, 500), "height": (150, 400)},
@@ -160,13 +166,88 @@ def _fix(value: float, rng: Range, axis: str, label: str) -> Tuple[float, Option
     return new, f"{label}.{axis} {value:.0f}->{new:.0f}mm (clamp)"
 
 
+def _fix_fused(
+    value: float, rng: Range, axis: str, label: str, prob: float
+) -> Tuple[float, Optional[str]]:
+    """Continuous prior fusion for one out-of-range axis.
+
+    Blends (in log space) between the violated bound (= legacy clamp, trusts
+    the model's shape) and the class-typical midpoint (= pure prior) with
+    weight lambda = alpha^(1 + 2*(1-p)), where
+    alpha = 1 - log(violation)/log(2) and p = model confidence:
+      - m -> 1  : alpha -> 1, lambda -> 1 -> bound, for ANY prob. Continuous
+                  with the in-range pass-through (no jump at the boundary).
+      - m >= 2  : alpha = 0, lambda = 0 -> exactly class-typical, matching the
+                  legacy severe cutoff for ANY prob.
+      - between : higher prob keeps the value nearer the bound (exponent 1);
+                  low prob accelerates the pull toward typical (exponent 3).
+    """
+    lo, hi = rng
+    if lo <= value <= hi:
+        return value, None
+    mid = (lo + hi) / 2.0
+    if value <= 0:
+        return mid, f"{label}.{axis} {value:.0f}->{mid:.0f}mm (fused degenerate)"
+    bound = lo if value < lo else hi
+    m = (lo / value) if value < lo else (value / hi)  # violation factor > 1
+    alpha = max(0.0, 1.0 - math.log(m) / math.log(2.0))
+    p = max(0.0, min(1.0, prob))
+    lam = alpha ** (1.0 + 2.0 * (1.0 - p))
+    new = math.exp(lam * math.log(bound) + (1.0 - lam) * math.log(mid))
+    return new, (
+        f"{label}.{axis} {value:.0f}->{new:.0f}mm (fused lam={lam:.2f})"
+    )
+
+
+def _common_scale_factor(
+    values: Tuple[float, float, float],
+    ranges: Tuple[Range, Range, Range],
+) -> Optional[float]:
+    """Detect a coherent scale error: all three axes outside their range in the
+    SAME direction with comparable log-magnitude. That pattern is the
+    fingerprint of a depth/focal *scale* error (the box shape is right, the
+    meters are wrong), where rescaling all axes by one factor preserves the
+    model's aspect ratio instead of distorting it axis-by-axis.
+
+    Returns the multiplicative factor (median violation undone), or None when
+    the violations are not scale-coherent.
+    """
+    logs = []
+    for v, (lo, hi) in zip(values, ranges):
+        if v <= 0:
+            return None
+        if v > hi:
+            logs.append(math.log(v / hi))
+        elif v < lo:
+            logs.append(math.log(v / lo))  # negative
+        else:
+            return None  # an in-range axis breaks the coherent-scale pattern
+    if not (all(e > 0 for e in logs) or all(e < 0 for e in logs)):
+        return None
+    mags = sorted(abs(e) for e in logs)
+    if mags[-1] > 3.0 * mags[0]:  # magnitudes too dissimilar -> not pure scale
+        return None
+    return math.exp(-sorted(logs)[1])  # undo the median violation
+
+
 def sanitize_dims(
     label: str,
     width_mm: float,
     depth_mm: float,
     height_mm: float,
+    prob: Optional[float] = None,
+    mode: str = "clamp",
 ) -> Tuple[float, float, float, List[str]]:
-    """Clamp (w, d, h) to the class's plausible range. Unknown class -> unchanged."""
+    """Pull (w, d, h) into the class's plausible range. Unknown class -> unchanged.
+
+    mode="clamp"  legacy behavior: in-range keep / mild clamp / severe(0.5x,2x)
+                  replace with class-typical midpoint.
+    mode="fused"  prob-weighted continuous fusion: in-range keep; a coherent
+                  all-axes scale violation is undone aspect-preservingly first;
+                  remaining violations blend bound<->typical by the model's own
+                  confidence (prob = 1/(1+sigma^2) from BoxerNet's aleatoric
+                  head). Requires `prob`; falls back to 0.5 when missing.
+    """
     key = label.lower().strip()
     bounds = _BOUNDS.get(key)
     if bounds is None:
@@ -175,19 +256,41 @@ def sanitize_dims(
         return width_mm, depth_mm, height_mm, []
 
     corrections: List[str] = []
-    h, ch = _fix(height_mm, bounds["height"], "height", label)
-    if ch:
-        corrections.append(ch)
 
     # Horizontal footprint: larger dim -> `long`, smaller -> `short`, then map back.
     width_is_long = width_mm >= depth_mm
     long_v, short_v = (width_mm, depth_mm) if width_is_long else (depth_mm, width_mm)
-    long_f, cl = _fix(long_v, bounds["long"], "long", label)
-    short_f, cs = _fix(short_v, bounds["short"], "short", label)
-    if cl:
-        corrections.append(cl)
-    if cs:
-        corrections.append(cs)
+
+    if mode == "fused":
+        p = 0.5 if prob is None else float(prob)
+        scale = _common_scale_factor(
+            (long_v, short_v, height_mm),
+            (bounds["long"], bounds["short"], bounds["height"]),
+        )
+        if scale is not None:
+            long_v, short_v, height_mm = (
+                long_v * scale, short_v * scale, height_mm * scale
+            )
+            corrections.append(f"{label} scale x{scale:.3f} (aspect-preserving)")
+        h, ch = _fix_fused(height_mm, bounds["height"], "height", label, p)
+        long_f, cl = _fix_fused(long_v, bounds["long"], "long", label, p)
+        short_f, cs = _fix_fused(short_v, bounds["short"], "short", label, p)
+    else:
+        h, ch = _fix(height_mm, bounds["height"], "height", label)
+        long_f, cl = _fix(long_v, bounds["long"], "long", label)
+        short_f, cs = _fix(short_v, bounds["short"], "short", label)
+
+    for c in (ch, cl, cs):
+        if c:
+            corrections.append(c)
+
+    # Independent long/short fixes can invert the footprint ordering when the
+    # class's `short` range sits above the (in-range) long value — e.g.
+    # recliner short severe->typical 950 vs long 720. Restore the invariant so
+    # the larger corrected dim maps back to the larger raw axis.
+    if short_f > long_f:
+        long_f, short_f = short_f, long_f
+        corrections.append(f"{label} footprint reordered (long/short inverted)")
     w, d = (long_f, short_f) if width_is_long else (short_f, long_f)
 
     return w, d, h, corrections
