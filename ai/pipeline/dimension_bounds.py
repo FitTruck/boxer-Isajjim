@@ -85,9 +85,12 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "piano": {"long": (1300, 1600), "short": (500, 700), "height": (1000, 1400)},
     # ---- Large appliances ----
     "refrigerator": {"long": (550, 1000), "short": (550, 850), "height": (1300, 2000)},
-    "automatic washer": {"long": (550, 700), "short": (550, 700), "height": (800, 1000)},
-    "washing machine": {"long": (550, 700), "short": (550, 700), "height": (800, 1000)},
-    "washer dryer": {"long": (550, 720), "short": (550, 720), "height": (800, 1900)},
+    # KR large-capacity drum washers (Samsung Grande/Bespoke 21kg+: 686x984,
+    # body depth 796-840mm incl. door) exceed the old 700mm cap -> long up to 830.
+    "automatic washer": {"long": (550, 830), "short": (550, 700), "height": (800, 1000)},
+    "washing machine": {"long": (550, 830), "short": (550, 700), "height": (800, 1000)},
+    # Heat-pump dryers 16-17kg run 686x984x844 -> long up to 880.
+    "washer dryer": {"long": (550, 880), "short": (550, 720), "height": (800, 1900)},
     "dishwasher": {"long": (550, 650), "short": (550, 650), "height": (800, 900)},
     "oven": {"long": (550, 750), "short": (550, 700), "height": (550, 950)},
     "stove": {"long": (500, 900), "short": (500, 700), "height": (450, 950)},
@@ -106,8 +109,10 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "kettle": {"long": (150, 300), "short": (150, 250), "height": (180, 300)},
     "teakettle": {"long": (150, 300), "short": (150, 250), "height": (180, 300)},
     # ---- Electronics ----
-    "tv": {"long": (700, 1800), "short": (40, 150), "height": (400, 800)},
-    "television set": {"long": (700, 1800), "short": (40, 150), "height": (400, 800)},
+    # Panel sizes 32"-85": width ~720-1890mm, height ~420-1090mm (65" = 1450x830,
+    # Danawa specs). The old 800mm height cap clipped correct 65"+ predictions.
+    "tv": {"long": (700, 1950), "short": (40, 150), "height": (400, 950)},
+    "television set": {"long": (700, 1950), "short": (40, 150), "height": (400, 950)},
     "computer monitor": {"long": (450, 900), "short": (50, 250), "height": (300, 600)},
     "laptop computer": {"long": (250, 400), "short": (180, 300), "height": (10, 250)},
     "printer": {"long": (350, 550), "short": (300, 500), "height": (150, 400)},
