@@ -43,7 +43,6 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "cushion": {"long": (300, 700), "short": (300, 700), "height": (100, 350)},
     # ---- Seating ----
     "sofa": {"long": (1200, 3200), "short": (700, 1100), "height": (600, 1100)},
-    "couch": {"long": (1200, 3200), "short": (700, 1100), "height": (600, 1100)},
     "sofa bed": {"long": (1500, 2200), "short": (800, 1100), "height": (550, 1100)},
     "loveseat": {"long": (1200, 1800), "short": (700, 1000), "height": (600, 1000)},
     "futon": {"long": (1400, 2100), "short": (700, 1100), "height": (300, 900)},
@@ -88,7 +87,6 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     # KR large-capacity drum washers (Samsung Grande/Bespoke 21kg+: 686x984,
     # body depth 796-840mm incl. door) exceed the old 700mm cap -> long up to 830.
     "automatic washer": {"long": (550, 830), "short": (550, 700), "height": (800, 1000)},
-    "washing machine": {"long": (550, 830), "short": (550, 700), "height": (800, 1000)},
     # Heat-pump dryers 16-17kg run 686x984x844 -> long up to 880.
     "washer dryer": {"long": (550, 880), "short": (550, 720), "height": (800, 1900)},
     "dishwasher": {"long": (550, 650), "short": (550, 650), "height": (800, 900)},
@@ -107,12 +105,10 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "coffee maker": {"long": (200, 350), "short": (150, 300), "height": (250, 450)},
     "food processor": {"long": (150, 300), "short": (150, 300), "height": (250, 500)},
     "kettle": {"long": (150, 300), "short": (150, 250), "height": (180, 300)},
-    "teakettle": {"long": (150, 300), "short": (150, 250), "height": (180, 300)},
     # ---- Electronics ----
     # Panel sizes 32"-85": width ~720-1890mm, height ~420-1090mm (65" = 1450x830,
     # Danawa specs). The old 800mm height cap clipped correct 65"+ predictions.
     "tv": {"long": (700, 1950), "short": (40, 150), "height": (400, 950)},
-    "television set": {"long": (700, 1950), "short": (40, 150), "height": (400, 950)},
     "computer monitor": {"long": (450, 900), "short": (50, 250), "height": (300, 600)},
     "laptop computer": {"long": (250, 400), "short": (180, 300), "height": (10, 250)},
     "printer": {"long": (350, 550), "short": (300, 500), "height": (150, 400)},
@@ -143,9 +139,20 @@ _BOUNDS: Dict[str, Dict[str, Range]] = {
     "toilet": {"long": (600, 750), "short": (350, 500), "height": (700, 1000)},
     "sink": {"long": (400, 700), "short": (350, 550), "height": (150, 250)},
     "kitchen sink": {"long": (500, 1000), "short": (400, 600), "height": (150, 300)},
-    "washbasin": {"long": (400, 700), "short": (350, 550), "height": (150, 250)},
     "fireplace": {"long": (700, 1600), "short": (300, 600), "height": (700, 1400)},
 }
+
+# Pure aliases — classes whose physical ranges are definitionally identical to a
+# canonical class. Single source of truth prevents drift (the 2026-06 washer
+# recalibration had to be applied to two identical rows).
+for _alias, _canonical in (
+    ("couch", "sofa"),
+    ("washing machine", "automatic washer"),
+    ("television set", "tv"),
+    ("teakettle", "kettle"),
+    ("washbasin", "sink"),
+):
+    _BOUNDS[_alias] = _BOUNDS[_canonical]
 
 # Genuinely non-cuboidal / amorphous classes: a 3D box is meaningless, so we pass
 # them through unchanged rather than impose misleading bounds.

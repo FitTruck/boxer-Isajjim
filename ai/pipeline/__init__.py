@@ -22,13 +22,11 @@ DepthEstimator = _stage3.DepthEstimator
 BoxerLifter = _stage4.BoxerLifter
 BoxerObb = _stage4.BoxerObb
 
-from .sam3_detection import Sam3Detector
 from .furniture_pipeline import DetectedObject, FurniturePipeline, PipelineResult
 
 __all__ = [
     "ImageFetcher",
     "Owlv2Detector",
-    "Sam3Detector",
     "DepthEstimator",
     "BoxerLifter",
     "BoxerObb",

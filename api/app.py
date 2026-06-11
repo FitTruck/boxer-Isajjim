@@ -1,7 +1,7 @@
 """FastAPI application entry point.
 
 Lifespan:
-- Initialize GPU pool (one FurniturePipeline = YOLOE + Depth + Boxer per GPU)
+- Initialize GPU pool (one FurniturePipeline = OWLv2 + Depth + Boxer per GPU)
 """
 
 import logging
@@ -59,7 +59,6 @@ async def lifespan(app: FastAPI):
         if torch.cuda.is_available():
             logger.info("  CUDA device           : %s", torch.cuda.get_device_name(0))
             logger.info("  CUDA capability       : %s", torch.cuda.get_device_capability(0))
-            logger.info("  CUDA driver runtime   : %s", torch.version.cuda)
     except Exception as e:
         logger.warning("  torch/CUDA info unavailable: %s", e)
     logger.info("=" * 64)
@@ -97,7 +96,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Boxer Furniture Analysis API",
-    description="YOLOE-26x-seg + Depth + BoxerNet 3D OBB lifting (no PLY/GCS).",
+    description="OWLv2 + Depth Pro + BoxerNet 3D OBB lifting (no PLY/GCS).",
     version="1.0.0",
     lifespan=lifespan,
 )

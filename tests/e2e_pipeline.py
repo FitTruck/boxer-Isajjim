@@ -1,4 +1,4 @@
-"""End-to-end smoke driver: YOLOE → Depth → Boxer on a local image.
+"""End-to-end smoke driver: OWLv2 → Depth → Boxer on a local image.
 
 Usage:
     python tests/e2e_pipeline.py [image_path]

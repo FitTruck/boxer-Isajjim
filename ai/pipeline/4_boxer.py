@@ -21,7 +21,6 @@ Setup (run from repo root so ./boxer matches BOXER_REPO_PATH's default):
 """
 
 import logging
-import math
 import os
 import sys
 from dataclasses import dataclass
@@ -52,7 +51,7 @@ class BoxerObb:
 
 
 class BoxerLifter:
-    """Lift YOLOE 2D detections + depth to 3D OBBs via BoxerNet."""
+    """Lift 2D detections + dense depth to 3D OBBs via BoxerNet."""
 
     def __init__(
         self,
@@ -60,19 +59,11 @@ class BoxerLifter:
         ckpt_path: Optional[str] = None,
         device: Optional[str] = None,
         conf_threshold: float = 0.2,
-        sdp_source: Optional[str] = None,
-        sdp_interp: Optional[str] = None,
-        sdp_target_points: Optional[int] = None,
     ):
         self.repo_path = repo_path or Config.BOXER_REPO_PATH
         self.ckpt_path = ckpt_path or Config.BOXER_CHECKPOINT
         self.device = device or Config.get_default_device()
         self.conf_threshold = conf_threshold
-        # sdp sampling strategy (see Config for semantics). Constructor args win
-        # over env so the eval harness can sweep variants in-process.
-        self.sdp_source = (sdp_source or Config.SDP_SOURCE).lower()
-        self.sdp_interp = (sdp_interp or Config.SDP_INTERP).lower()
-        self.sdp_target_points = int(sdp_target_points or Config.SDP_TARGET_POINTS)
         self.net = None
         self.CameraTW = None
         self.PoseTW = None
@@ -162,14 +153,12 @@ class BoxerLifter:
             focal_length_px: predicted intrinsic focal length (Depth Pro, at
                 original image scale). None → 75° FOV pinhole synthetic.
         """
-        if self.net is None or len(bboxes_xyxy) == 0:
-            return []
-        datum, _cam, _pose, _img_t = self._prepare_datum(
+        lifted = self.lift_obbs(
             image, bboxes_xyxy, depth, focal_length_px, gravity_down_cam
         )
-        output = self._forward(datum)
-        obb_w = output["obbs_pr_w"].cpu()[0]  # (M, 165)
-        return self._to_results(obb_w, labels)
+        if lifted is None:
+            return []
+        return self._to_results(lifted[0], labels)
 
     def lift_obbs(
         self,
@@ -257,7 +246,11 @@ class BoxerLifter:
         img_t = self._image_to_tensor(image_r)
         cam = self._build_camera(target, target, fx, fy, cx, cy)
         pose = self._pose_from_R(R_world_cam)
-        sdp = self._build_sdp(depth, W0, H0, target, fx, fy, R_world_cam)
+        depth_r = self._resize_depth(depth, target)
+        sdp = self._depth_to_sdp(
+            depth_r, cam_fx=fx, cam_fy=fy, cx=cx, cy=cy,
+            R_world_cam=R_world_cam,
+        )
         bb2d = self._to_boxer_order(bbox_r)
 
         datum = {
@@ -292,61 +285,14 @@ class BoxerLifter:
         return torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).contiguous()
 
     @staticmethod
-    def _resize_depth(depth: np.ndarray, target: int, interp: str = "bilinear") -> np.ndarray:
+    def _resize_depth(depth: np.ndarray, target: int) -> np.ndarray:
         try:
             import cv2
 
-            flag = cv2.INTER_NEAREST if interp == "nearest" else cv2.INTER_LINEAR
-            return cv2.resize(depth, (target, target), interpolation=flag).astype(np.float32)
+            return cv2.resize(depth, (target, target), interpolation=cv2.INTER_LINEAR).astype(np.float32)
         except ImportError:
-            resample = Image.NEAREST if interp == "nearest" else Image.BILINEAR
-            depth_pil = Image.fromarray(depth).resize((target, target), resample)
+            depth_pil = Image.fromarray(depth).resize((target, target), Image.BILINEAR)
             return np.asarray(depth_pil, dtype=np.float32)
-
-    def _build_sdp(
-        self,
-        depth: np.ndarray,
-        W0: int,
-        H0: int,
-        target: int,
-        fx: float,
-        fy: float,
-        R_world_cam: Optional[np.ndarray],
-    ) -> np.ndarray:
-        """Build the sdp point cloud per the configured source / density.
-
-        "native" back-projects the original-resolution depth map with the
-        original intrinsics (fx/fy un-scaled from the square-resize). The 3D
-        geometry is identical to the legacy "resized" path, but no depth values
-        are interpolated across object boundaries, so no flying points are
-        synthesized at occlusion edges. Falls back to "resized" when the depth
-        map does not match the image size.
-
-        The sampling stride is derived from `sdp_target_points`; 14400 on the
-        legacy path reproduces the historical stride-8 grid exactly.
-        """
-        n_target = max(1, self.sdp_target_points)
-        if self.sdp_source == "native":
-            if depth.shape == (H0, W0):
-                stride = max(1, int(round(math.sqrt(W0 * H0 / n_target))))
-                # Undo the per-axis square-resize scaling (fx = f_native * sx).
-                fx0 = fx * W0 / target
-                fy0 = fy * H0 / target
-                return self._depth_to_sdp(
-                    depth, cam_fx=fx0, cam_fy=fy0, cx=W0 / 2.0, cy=H0 / 2.0,
-                    stride=stride, R_world_cam=R_world_cam,
-                )
-            logger.warning(
-                "sdp native source: depth shape %s != image (%d, %d); "
-                "falling back to resized path",
-                depth.shape, H0, W0,
-            )
-        depth_r = self._resize_depth(depth, target, self.sdp_interp)
-        stride = max(1, int(round(target / math.sqrt(n_target))))
-        return self._depth_to_sdp(
-            depth_r, cam_fx=fx, cam_fy=fy, cx=target / 2.0, cy=target / 2.0,
-            stride=stride, R_world_cam=R_world_cam,
-        )
 
     def _build_camera(self, W: int, H: int, fx: float, fy: float, cx: float, cy: float):
         """Pinhole CameraTW with provided intrinsics."""
@@ -418,16 +364,16 @@ class BoxerLifter:
         passed as `T_world_rig`). Without this rotation the points would be in
         the camera frame while the pose claims a Z-down world — inconsistent.
         """
-        h, w = depth.shape
-        vs = np.arange(0, h, stride, dtype=np.float32)
-        us = np.arange(0, w, stride, dtype=np.float32)
-        uu, vv = np.meshgrid(us, vs)
-        zz = depth[vv.astype(int), uu.astype(int)]
+        # Strided view (no copy) + broadcasting — same samples and arithmetic
+        # as the old meshgrid + fancy-indexing version, without materializing
+        # full coordinate grids.
+        zz = depth[::stride, ::stride].astype(np.float32)
+        us = np.arange(0, depth.shape[1], stride, dtype=np.float32)
+        vs = np.arange(0, depth.shape[0], stride, dtype=np.float32)
+        xx = (us[None, :] - cx) * zz / cam_fx
+        yy = (vs[:, None] - cy) * zz / cam_fy
         valid = zz > 1e-4
-        uu, vv, zz = uu[valid], vv[valid], zz[valid]
-        xx = (uu - cx) * zz / cam_fx
-        yy = (vv - cy) * zz / cam_fy
-        pts = np.stack([xx, yy, zz], axis=-1).astype(np.float32)
+        pts = np.stack([xx[valid], yy[valid], zz[valid]], axis=-1).astype(np.float32)
         if R_world_cam is not None and len(pts):
             pts = (pts @ R_world_cam.T).astype(np.float32)
         if len(pts) == 0:
