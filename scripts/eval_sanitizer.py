@@ -23,16 +23,14 @@ Usage:
 
 import argparse
 import json
-import math
 import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import eval_common as ec  # noqa: E402  (repo bootstrap: sys.path, BOXER_* env, logging)
 
 from ai.pipeline.dimension_bounds import _BOUNDS, sanitize_dims  # noqa: E402
 
@@ -57,45 +55,16 @@ def _apply(policy: str, rec: Dict[str, Any]) -> Tuple[float, float, float]:
 
 
 def _axis_errs(dims: Tuple[float, float, float], gt: Dict[str, float]) -> Optional[List[float]]:
-    w, d, h = dims
-    if min(w, d, h) <= 0:
-        return None
-    p_long, p_short = max(w, d), min(w, d)
-    g_long = max(gt["width_mm"], gt["depth_mm"])
-    g_short = min(gt["width_mm"], gt["depth_mm"])
-    if g_long <= 0 or g_short <= 0 or gt["height_mm"] <= 0:
-        return None
-    return [
-        abs(math.log(p_long / g_long)),
-        abs(math.log(p_short / g_short)),
-        abs(math.log(h / gt["height_mm"])),
-    ]
+    errs = ec.axis_log_errors(dims[0], dims[1], dims[2], gt)
+    return list(errs.values()) if errs else None
 
 
-def _vol_re(dims: Tuple[float, float, float], gt: Dict[str, float]) -> float:
+def _vol_re(dims: Tuple[float, float, float], gt: Dict[str, float]) -> Optional[float]:
+    if not gt.get("height_mm"):
+        return None  # height not pinned by the standard -> no GT volume
     gv = gt["width_mm"] * gt["depth_mm"] * gt["height_mm"]
     pv = dims[0] * dims[1] * dims[2]
     return abs(pv - gv) / gv
-
-
-def _attach_gt(records: List[Dict[str, Any]], manifest_path: str) -> None:
-    """Match manifest GT anchors onto records (highest-2D-score same-label)."""
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        manifest = json.load(f)
-    for im in manifest["images"]:
-        if not im.get("objects"):
-            continue
-        stem = os.path.splitext(os.path.basename(im["path"]))[0]
-        img_recs = [r for r in records if r["image"] == stem]
-        for gt in im["objects"]:
-            cands = sorted(
-                (r for r in img_recs if r["label"].lower() == gt["label"].lower()),
-                key=lambda r: -r["score2d"],
-            )
-            if cands and gt.get("height_mm") is not None:
-                cands[0]["gt"] = {
-                    k: float(gt[k]) for k in ("width_mm", "depth_mm", "height_mm")
-                }
 
 
 def main() -> int:
@@ -105,11 +74,10 @@ def main() -> int:
     ap.add_argument("--table", action="store_true", help="print per-object review table")
     args = ap.parse_args()
 
-    with open(args.report, "r", encoding="utf-8") as f:
-        report = json.load(f)
-    records = [r for r in report["records"] if r["image"] != "35"]  # dup of 31
+    report = ec.load_report(args.report)
+    records = ec.drop_dup(report["records"])
     if args.manifest:
-        _attach_gt(records, args.manifest)
+        ec.attach_manifest_gt(records, args.manifest)
     gt_recs = [r for r in records if r.get("gt")]
 
     print(f"report={report['name']}  objects={len(records)}  gt-matched={len(gt_recs)}")
@@ -124,7 +92,9 @@ def main() -> int:
                 errs = _axis_errs(dims, r["gt"])
                 if errs is not None:
                     axis_errs.append(float(np.mean(errs)))
-                vol_res.append(_vol_re(dims, r["gt"]))
+                vr = _vol_re(dims, r["gt"])
+                if vr is not None:
+                    vol_res.append(vr)
             out[policy] = {
                 "axis_logmae": round(float(np.mean(axis_errs)), 4) if axis_errs else None,
                 "axis_logmae_median": round(float(np.median(axis_errs)), 4) if axis_errs else None,
@@ -137,10 +107,10 @@ def main() -> int:
         # paired fused vs clamp
         deltas = []
         for r in gt_recs:
-            ec = _axis_errs(_apply("clamp", r), r["gt"])
-            ef = _axis_errs(_apply("fused", r), r["gt"])
-            if ec is not None and ef is not None:
-                deltas.append(float(np.mean(ef)) - float(np.mean(ec)))
+            e_clamp = _axis_errs(_apply("clamp", r), r["gt"])
+            e_fused = _axis_errs(_apply("fused", r), r["gt"])
+            if e_clamp is not None and e_fused is not None:
+                deltas.append(float(np.mean(e_fused)) - float(np.mean(e_clamp)))
         if deltas:
             better = sum(1 for x in deltas if x < -1e-9)
             worse = sum(1 for x in deltas if x > 1e-9)
@@ -153,17 +123,17 @@ def main() -> int:
         for tau in _TAUS:
             for fallback in ("zero", "prior"):
                 vol_res = []
-                dropped = 0
                 for r in gt_recs:
                     if r["prob"] < tau:
                         if fallback == "zero":
                             dims = (0.0, 0.0, 0.0)
-                            dropped += 1
                         else:
                             dims = _typical_dims(r["label"]) or (0.0, 0.0, 0.0)
                     else:
                         dims = _apply("fused", r)
-                    vol_res.append(_vol_re(dims, r["gt"]))
+                    vr = _vol_re(dims, r["gt"])
+                    if vr is not None:
+                        vol_res.append(vr)
                 sweep[f"tau={tau}/{fallback}"] = {
                     "vol_mre": round(float(np.mean(vol_res)), 4),
                     "below_tau": sum(1 for r in gt_recs if r["prob"] < tau),

@@ -15,15 +15,13 @@ Usage:
 """
 
 import argparse
-import json
 import os
 import sys
 from collections import Counter
 from typing import Any, Dict, List
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import eval_common as ec  # noqa: E402  (repo bootstrap: sys.path, BOXER_* env, logging)
 
 from ai.pipeline import dimension_bounds as db  # noqa: E402
 
@@ -70,11 +68,10 @@ def main() -> int:
                     help="include 35.png (byte-identical dup of 31) like the A-4 measurement")
     args = ap.parse_args()
 
-    with open(args.report, encoding="utf-8") as f:
-        report = json.load(f)
+    report = ec.load_report(args.report)
     records = report["records"]
     if not args.include_dup:
-        records = [r for r in records if r["image"] != "35"]
+        records = ec.drop_dup(records)
 
     print(f"report={report['name']}  objects={len(records)} "
           f"(dup35 {'included' if args.include_dup else 'excluded'})\n")
