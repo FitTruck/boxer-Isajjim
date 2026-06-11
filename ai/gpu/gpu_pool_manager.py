@@ -1,6 +1,6 @@
 """Multi-device pool with semaphore-based event scheduling.
 
-서버 시작 시 디바이스당 1개의 FurniturePipeline (YOLOE + Depth + Boxer)을 미리 로드하고,
+서버 시작 시 디바이스당 1개의 FurniturePipeline (OWLv2 + Depth + Boxer)을 미리 로드하고,
 요청마다 사용 가능한 디바이스 슬롯을 round-robin으로 분배한다.
 
 스케줄링은 `asyncio.Semaphore` 기반:

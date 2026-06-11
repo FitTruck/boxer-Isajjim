@@ -30,8 +30,7 @@ Metrics (no real GT required):
 Usage:
   python scripts/eval_ab.py snapshot --manifest scripts/eval_manifest.json
   python scripts/eval_ab.py run --name baseline
-  python scripts/eval_ab.py run --name native50k --sdp-source native --sdp-points 57600
-  python scripts/eval_ab.py compare baseline nearest native14k native50k resized50k
+  python scripts/eval_ab.py compare before after
 """
 
 import argparse
@@ -45,59 +44,24 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
-os.environ.setdefault(
-    "BOXER_CHECKPOINT",
-    os.path.join(_ROOT, "boxer", "ckpts", "boxernet_hw960in4x6d768-3e37cfc4.ckpt"),
-)
-os.environ.setdefault("BOXER_REPO_PATH", os.path.join(_ROOT, "boxer"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import eval_common as ec  # noqa: E402  (repo bootstrap: sys.path, BOXER_* env, logging)
 
-logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
 log = logging.getLogger("eval_ab")
 
-CACHE_DIR = os.path.join(_ROOT, "scripts", ".eval_cache")
-SNAP_DIR = os.path.join(CACHE_DIR, "snapshot")
-REPORT_DIR = os.path.join(CACHE_DIR, "reports")
-DEFAULT_MANIFEST = os.path.join(_ROOT, "scripts", "eval_manifest.json")
+SNAP_DIR = ec.SNAP_DIR
+REPORT_DIR = ec.REPORT_DIR
+DEFAULT_MANIFEST = ec.DEFAULT_MANIFEST
 
 
 # --------------------------------------------------------------------------- #
 # Shared helpers
 # --------------------------------------------------------------------------- #
-def _stem(path: str) -> str:
-    return os.path.splitext(os.path.basename(path))[0]
-
-
-def _load_manifest(path: str) -> List[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    images = data["images"]
-    for item in images:
-        if not os.path.isabs(item["path"]):
-            item["path"] = os.path.join(_ROOT, item["path"])
-    return images
-
-
 def _filter_only(images: List[Dict[str, Any]], only: Optional[str]) -> List[Dict[str, Any]]:
     if not only:
         return images
     keep = {s.strip() for s in only.split(",") if s.strip()}
-    return [im for im in images if _stem(im["path"]) in keep]
-
-
-def sign_test_p(pos: int, neg: int) -> float:
-    """Exact two-sided binomial sign test (p=0.5), zero deltas excluded upstream."""
-    n = pos + neg
-    if n == 0:
-        return 1.0
-    k = min(pos, neg)
-    tail = sum(math.comb(n, i) for i in range(0, k + 1)) / 2.0**n
-    return min(1.0, 2.0 * tail)
+    return [im for im in images if ec.stem(im["path"]) in keep]
 
 
 # --------------------------------------------------------------------------- #
@@ -108,14 +72,14 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
 
     from ai.pipeline import DepthEstimator, Owlv2Detector
 
-    images = _filter_only(_load_manifest(args.manifest), args.only)
+    images = _filter_only(ec.load_manifest(args.manifest), args.only)
     os.makedirs(SNAP_DIR, exist_ok=True)
 
     detector = Owlv2Detector()
     depth_model = DepthEstimator()
 
     for item in images:
-        path, stem = item["path"], _stem(item["path"])
+        path, stem = item["path"], ec.stem(item["path"])
         img = Image.open(path).convert("RGB")
 
         t0 = time.perf_counter()
@@ -151,55 +115,16 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------- #
 # Stage 2: run one BoxerNet variant against the cached inputs
 # --------------------------------------------------------------------------- #
-def _match_gt(
-    records: List[Dict[str, Any]], gt_objects: List[Dict[str, Any]]
-) -> None:
-    """Greedy label match: highest-2D-score detection takes the first GT row."""
-    by_label: Dict[str, List[Dict[str, Any]]] = {}
-    for gt in gt_objects:
-        by_label.setdefault(gt["label"].lower().strip(), []).append(gt)
-    for rec in sorted(records, key=lambda r: -r["score2d"]):
-        pool = by_label.get(rec["label"].lower().strip())
-        if not pool:
-            continue
-        gt = pool.pop(0)
-        # height_mm may be null (axis not pinned by the standard) -> skip axis.
-        rec["gt"] = {
-            k: (float(gt[k]) if gt.get(k) is not None else None)
-            for k in ("width_mm", "depth_mm", "height_mm")
-        }
-        if min(rec["w_mm"], rec["d_mm"], rec["h_mm"]) <= 0:
-            continue
-        p_long, p_short = max(rec["w_mm"], rec["d_mm"]), min(rec["w_mm"], rec["d_mm"])
-        g_long = max(gt["width_mm"], gt["depth_mm"])
-        g_short = min(gt["width_mm"], gt["depth_mm"])
-        if g_long <= 0 or g_short <= 0:
-            continue
-        errs = {
-            "long": abs(math.log(p_long / g_long)),
-            "short": abs(math.log(p_short / g_short)),
-        }
-        g_h = gt.get("height_mm")
-        if g_h:
-            errs["height"] = abs(math.log(rec["h_mm"] / g_h))
-        rec["gt_err"] = errs
-
-
 def cmd_run(args: argparse.Namespace) -> int:
     from PIL import Image
 
     from ai.pipeline import BoxerLifter
     from ai.pipeline.dimension_bounds import _BOUNDS, sanitize_dims
 
-    images = _filter_only(_load_manifest(args.manifest), args.only)
+    images = _filter_only(ec.load_manifest(args.manifest), args.only)
     os.makedirs(REPORT_DIR, exist_ok=True)
 
-    lifter = BoxerLifter(
-        conf_threshold=0.0,
-        sdp_source=args.sdp_source,
-        sdp_interp=args.sdp_interp,
-        sdp_target_points=args.sdp_points,
-    )
+    lifter = BoxerLifter(conf_threshold=0.0)
     if lifter.net is None:
         log.error("BoxerNet unavailable (checkpoint/repo missing) — abort")
         return 2
@@ -210,7 +135,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     all_records: List[Dict[str, Any]] = []
     times: Dict[str, float] = {}
     for item in images:
-        stem = _stem(item["path"])
+        stem = ec.stem(item["path"])
         snap_path = os.path.join(SNAP_DIR, f"{stem}.json")
         if not os.path.exists(snap_path):
             log.warning("no snapshot for %s — run `snapshot` first; skipping", stem)
@@ -283,18 +208,13 @@ def cmd_run(args: argparse.Namespace) -> int:
                 "z_obs": round(z_obs, 3) if not math.isnan(z_obs) else None,
                 "depth_log_ratio": round(dlr, 4) if not math.isnan(dlr) else None,
             })
-        if item.get("objects"):
-            _match_gt(records, item["objects"])
         all_records.extend(records)
         log.info("[run:%s] %s: %d objs (%.1fs)", args.name, stem, len(records), times[stem])
 
+    ec.attach_manifest_gt(all_records, args.manifest)
+
     report = {
         "name": args.name,
-        "params": {
-            "sdp_source": args.sdp_source,
-            "sdp_interp": args.sdp_interp,
-            "sdp_points": args.sdp_points,
-        },
         "lift_seconds": {k: round(v, 2) for k, v in times.items()},
         "records": all_records,
     }
@@ -329,10 +249,13 @@ def _agg(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "mean_abs_depth_lr": round(float(np.mean(dlrs)), 4) if dlrs else None,
     }
     if gt_errs:
+        # height may be absent (manifest height_mm: null) — average present axes.
         for axis in ("long", "short", "height"):
-            out[f"gt_mae_{axis}"] = round(float(np.mean([e[axis] for e in gt_errs])), 4)
+            vals = [e[axis] for e in gt_errs if axis in e]
+            if vals:
+                out[f"gt_mae_{axis}"] = round(float(np.mean(vals)), 4)
         out["gt_mae_all"] = round(
-            float(np.mean([e[a] for e in gt_errs for a in ("long", "short", "height")])), 4
+            float(np.mean([v for e in gt_errs for v in e.values()])), 4
         )
         out["gt_n"] = len(gt_errs)
     return out
@@ -362,7 +285,7 @@ def _paired(base: List[Dict[str, Any]], var: List[Dict[str, Any]], key: str) -> 
         "ties": len(deltas) - pos - neg,
         "mean_delta": round(float(np.mean(deltas)), 4),
         "median_delta": round(float(np.median(deltas)), 4),
-        "sign_p": round(sign_test_p(pos, neg), 4),
+        "sign_p": round(ec.sign_test_p(pos, neg), 4),
     }
 
 
@@ -414,7 +337,7 @@ def cmd_compare(args: argparse.Namespace) -> int:
                 paired_out[name]["gt_err"] = {
                     "n": len(deltas), "better": neg, "worse": pos,
                     "mean_delta": round(float(np.mean(deltas)), 4),
-                    "sign_p": round(sign_test_p(pos, neg), 4),
+                    "sign_p": round(ec.sign_test_p(pos, neg), 4),
                 }
     print(json.dumps(paired_out, indent=1, ensure_ascii=False))
 
@@ -438,9 +361,6 @@ def main() -> int:
     rp.add_argument("--name", required=True)
     rp.add_argument("--manifest", default=DEFAULT_MANIFEST)
     rp.add_argument("--only", default=None)
-    rp.add_argument("--sdp-source", default="resized", choices=["resized", "native"])
-    rp.add_argument("--sdp-interp", default="bilinear", choices=["bilinear", "nearest"])
-    rp.add_argument("--sdp-points", type=int, default=14400)
     rp.set_defaults(fn=cmd_run)
 
     cp = sub.add_parser("compare", help="aggregate + paired comparison")

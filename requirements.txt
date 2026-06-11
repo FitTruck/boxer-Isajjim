@@ -1,6 +1,6 @@
 # Verified end-to-end on:
 #   Python 3.11, torch 2.12.0+cu130, transformers 4.52.0.dev0,
-#   ultralytics 8.4.53, NVIDIA RTX 3060 12GB.
+#   NVIDIA RTX 3060 12GB.
 
 # ---- Web framework ----
 fastapi>=0.115.0
@@ -9,7 +9,6 @@ pydantic>=2.5.0
 
 # ---- HTTP client (image fetch + backend callback) ----
 aiohttp>=3.8.0
-requests>=2.31.0
 
 # ---- Image / numeric ----
 pillow>=10.0.0
@@ -19,7 +18,6 @@ opencv-python>=4.8.0          # CLAHE + depth resize
 # ---- ML core ----
 torch>=2.1.0
 torchvision>=0.16.0           # used: torchvision.ops.nms
-ultralytics>=8.3.0            # YOLOE-26x-seg
 # transformers >=4.46 ships DepthPro support via AutoImageProcessor /
 # DepthProForDepthEstimation.  We deliberately avoid the legacy
 # `transformers.pipelines` import (broken in some torch/transformers dev

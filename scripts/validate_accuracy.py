@@ -52,19 +52,11 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 # --- Make repo root importable + default Boxer paths (same as tests/e2e_pipeline.py) ---
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
-os.environ.setdefault(
-    "BOXER_CHECKPOINT",
-    os.path.join(_ROOT, "boxer", "ckpts", "boxernet_hw960in4x6d768-3e37cfc4.ckpt"),
-)
-os.environ.setdefault("BOXER_REPO_PATH", os.path.join(_ROOT, "boxer"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import eval_common as ec  # noqa: E402  (repo bootstrap: sys.path, BOXER_* env, logging)
 
-logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+_ROOT = ec.ROOT
+
 log = logging.getLogger("validate")
 
 _DIMS = ("width_mm", "depth_mm", "height_mm")

@@ -12,10 +12,10 @@ from typing import Dict, List, Optional
 import numpy as np
 import torch
 from PIL import Image
-from torchvision.ops import nms
 from transformers import Owlv2ForObjectDetection, Owlv2Processor
 
 from ai.config import Config
+from ai.pipeline.detection_common import empty_detections, merge_chunks_nms
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ class Owlv2Detector:
     def detect(self, image: Image.Image) -> Dict[str, np.ndarray]:
         """Run OWLv2 with chunked text queries, NMS-merge across chunks."""
         if self.model is None:
-            return self._empty()
+            return empty_detections()
 
         all_boxes: List[np.ndarray] = []
         all_scores: List[np.ndarray] = []
@@ -100,34 +100,8 @@ class Owlv2Detector:
             all_label_ids.append(local_ids + start)
 
         if not all_boxes:
-            return self._empty()
-
-        boxes = np.concatenate(all_boxes, axis=0).astype(np.float32)
-        scores = np.concatenate(all_scores, axis=0).astype(np.float32)
-        label_ids = np.concatenate(all_label_ids, axis=0).astype(int)
-
-        # Class-agnostic NMS — chunks may double-detect across overlapping prompts.
-        keep = nms(
-            torch.from_numpy(boxes), torch.from_numpy(scores), self.nms_iou
-        ).tolist()
-        boxes = boxes[keep]
-        scores = scores[keep]
-        label_ids = label_ids[keep]
-        labels = [self.display_labels[i] for i in label_ids]
-
-        return {
-            "boxes": boxes,
-            "scores": scores,
-            "classes": label_ids,
-            "labels": labels,
-        }
-
-    @staticmethod
-    def _empty() -> Dict[str, np.ndarray]:
-        return {
-            "boxes": np.zeros((0, 4), dtype=np.float32),
-            "scores": np.zeros((0,), dtype=np.float32),
-            "classes": np.zeros((0,), dtype=int),
-            "labels": [],
-        }
+            return empty_detections()
+        return merge_chunks_nms(
+            all_boxes, all_scores, all_label_ids, self.display_labels, self.nms_iou
+        )
 

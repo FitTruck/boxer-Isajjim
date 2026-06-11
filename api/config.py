@@ -1,4 +1,10 @@
-"""API configuration. Must set CUDA-related env vars BEFORE importing torch."""
+"""API configuration. Must set CUDA-related env vars BEFORE importing torch.
+
+INVARIANT: this module must be the process's first importer of torch (api/app.py
+imports it before anything else touches torch). A module that imports torch
+before api.config would initialize torch without OMP/MKL thread caps and the
+MPS fallback flag.
+"""
 
 import os
 
@@ -13,16 +19,11 @@ import torch
 torch.set_default_dtype(torch.float32)
 torch.set_num_threads(4)
 
+from ai.config import Config  # noqa: E402  (must come after the pre-torch env)
 
-def get_device() -> torch.device:
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
-device = get_device()
+# Single source of truth for device auto-detection (ai.config). The split
+# drops the ":0" ordinal so the /health payload string stays "cuda" exactly.
+device = torch.device(Config.get_default_device().split(":")[0])
 
 # ---- Callback ------------------------------------------------------------
 CALLBACK_URL_TEMPLATE: str = os.environ.get(

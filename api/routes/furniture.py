@@ -33,17 +33,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@asynccontextmanager
-async def _borrow_pipeline(task_id: str):
-    """Acquire a pre-initialized pipeline from the pool, or build one on demand."""
+def _ready_pool():
+    """The GPU pool, if it exists and has at least one pre-initialized pipeline."""
     try:
         from ai.gpu import get_gpu_pool
 
         pool = get_gpu_pool()
     except Exception:
-        pool = None
-
+        return None
     if pool and any(pool.has_pipeline(d) for d in pool.devices):
+        return pool
+    return None
+
+
+def _decode_base64_image(b64: str) -> Image.Image:
+    return Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+
+
+@asynccontextmanager
+async def _borrow_pipeline(task_id: str):
+    """Acquire a pre-initialized pipeline from the pool, or build one on demand."""
+    pool = _ready_pool()
+    if pool:
         async with pool.pipeline_context(task_id=task_id) as (device, pipeline):
             yield pipeline, device
         return
@@ -56,14 +67,8 @@ async def _borrow_pipeline(task_id: str):
 async def _analyze_and_callback(estimate_id: int, image_items: List[Tuple[int, str]]):
     """Run pipeline per image with real multi-device parallelism, then callback."""
     try:
-        from ai.gpu import get_gpu_pool
-
-        try:
-            pool = get_gpu_pool()
-        except Exception:
-            pool = None
-
-        if pool and any(pool.has_pipeline(d) for d in pool.devices):
+        pool = _ready_pool()
+        if pool:
 
             async def _one(image_id: int, url: str) -> PipelineResult:
                 tid = f"est{estimate_id}_img{image_id}"
@@ -120,7 +125,7 @@ async def analyze_furniture_single(request: AnalyzeFurnitureSingleRequest):
 @router.post("/analyze-furniture-base64")
 async def analyze_furniture_base64(request: AnalyzeFurnitureBase64Request):
     try:
-        image = Image.open(io.BytesIO(base64.b64decode(request.image))).convert("RGB")
+        image = _decode_base64_image(request.image)
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": f"Invalid base64 image: {e}"})
 
@@ -140,7 +145,7 @@ async def analyze_furniture_base64(request: AnalyzeFurnitureBase64Request):
 @router.post("/detect-furniture")
 async def detect_furniture(request: AnalyzeFurnitureBase64Request):
     try:
-        image = Image.open(io.BytesIO(base64.b64decode(request.image))).convert("RGB")
+        image = _decode_base64_image(request.image)
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": f"Invalid base64 image: {e}"})
 

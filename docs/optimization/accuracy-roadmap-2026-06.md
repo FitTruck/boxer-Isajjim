@@ -43,7 +43,7 @@
 - **왜**: 진단 #6 — 기울어진 사진에서 수직축 누설은 구조적 오차라 sanitizer로 못 잡는다. 기존 실증은 수평 사진 2장뿐(opt.md A-3 "미완").
 
 ### P4. 검출 업그레이드 A/B
-- **OWLv2 base→large-patch14-ensemble**: bb2d는 BoxerNet의 쿼리 입력(`boxernet.py:706`) → 박스 품질이 3D 입력 품질. SAM3 대비 여전히 빠름. `scripts/compare_detectors.py` 재활용.
+- **OWLv2 base→large-patch14-ensemble**: bb2d는 BoxerNet의 쿼리 입력(`boxernet.py:706`) → 박스 품질이 3D 입력 품질. A/B는 `scripts/eval_ab.py` 스냅샷 교체로 수행(구 `compare_detectors.py`는 2026-06-11 제거, git 히스토리 참조).
 - **class-aware NMS + 클래스별 threshold**: 최다 보정 클래스(cushion 9·lamp 7·pillow 4)가 과탐·중복 출처와 겹침. 현재 class-agnostic IoU 0.5 단일값(`2_owlv2_2d_detection.py:41`).
 
 ### P5. depth 백엔드 A/B — P0에서 bias≠1로 판정될 때

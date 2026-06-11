@@ -78,7 +78,8 @@
 - **원본 대비**: 통합 단계 신규 설계. chunked 프롬프트(chunk 256) + chunk 간 NMS 병합.
 - **실측 효과(A/B, 동일 depth+BoxerNet)**: SAM3 대비 **3D 치수 사실상 동률**인데 OWLv2가 **30~100× 빠름**(0.2~1.6s vs 20~30s). SAM3는 precision↑·고신뢰지만 recall↓·느림 → 프로덕션은 OWLv2 유지(+threshold/NMS 후처리).
 - **핵심 발견**: 치수 정확도 병목은 **검출기가 아니라 기하(pose/depth)** → A-1이 진짜 레버.
-- **근거**: `ai/pipeline/2_owlv2_2d_detection.py`, `sam3_detection.py`, commit `991a493`/`dd0a1ea`, 실험노트 §5
+- **근거**: `ai/pipeline/2_owlv2_2d_detection.py`, commit `991a493`/`dd0a1ea`, 실험노트 §5
+- **후속(2026-06-11)**: 실험 종결에 따라 SAM3 백엔드 코드(`sam3_detection.py`, `DETECTOR_BACKEND`, `compare_detectors.py`) 제거 — 결론(OWLv2 채택)은 유지, 복원은 git 히스토리
 - **날짜**: 2026-05 · **분류**: B
 
 ### C. 서빙 / 처리량
@@ -104,13 +105,13 @@
 - **Depth Pro 단계가 파이프라인 최대 병목** — MPS 직접 실측 `~30s/img`(median 30.1s, 952M 파라미터, 추론 피크 ~9GB). CUDA(V100)면 0.3s라 ~100× MPS 페널티. 속도 최적화 시 1순위 대상. (실측: 이 Mac MPS, 2026-06-01)
 - **외부 표준 GT 앵커 4점 확보(2026-06-10)** — `scripts/eval_manifest.json`: 33.png 매트리스 K 1600×2000(사진 캡션 명시), 36.png 삼성 세탁기 796×686×984·건조기 844×686×984(제조사 spec), img_1.png 65" TV 1450×60×830. dimension_bounds prior와 독립인 측정 기준점. 진짜 정확도 검증엔 실측 GT 20~50객체가 필요(최우선 과제).
 - **⚠ 데이터 이슈: `ai/imgs/31.png` ≡ `35.png`(md5 동일)** — '이삿찜 데이터' CSV의 1번/3번 사진이 같은 파일. CSV는 GT가 아니라 개선 전/후 모델 출력 비교표임. 평가셋 수집 과정 점검 필요.
-- **평가 인프라(2026-06-10)** — `scripts/eval_ab.py`(검출·depth 캐시 paired A/B, A/A 노이즈 0.00mm 검증), `analyze_ablation.py`, `eval_sanitizer.py`, `correction_rate.py`. 실험 정밀도는 MPS fp32 — 프로덕션(T4 fp16/L4 bf16) 채택 전 GPU 서버 재검증 필요.
+- **평가 인프라(2026-06-10)** — `scripts/eval_ab.py`(검출·depth 캐시 paired A/B, A/A 노이즈 0.00mm 검증), `eval_sanitizer.py`, `correction_rate.py`, 공용 `eval_common.py`. 실험 정밀도는 MPS fp32 — 프로덕션(T4 fp16/L4 bf16) 채택 전 GPU 서버 재검증 필요.
 
 ## 제외 / 기각 (최적화 아님 — 재시도 금지)
 
 - **square-resize 960² 왜곡 가설 (기각)**: 비정사각 스트레치를 의심했으나 공식 `run_boxer.py`도 동일하게 square resize + per-axis intrinsic 보정 → 레퍼런스와 일치, 버그 아님. 구현 안 함. (실험노트 §4)
 - **bf16 autocast / 단일 forward batching**: 원본 boxer 추론 방식과 동일하여 팀 고유 최적화로 보지 않음.
-- **sdp 공급 개선 가설 (기각, 2026-06-10)**: "bilinear depth resize가 경계 혼합값(flying points)을 만들어 정확도를 해친다 → nearest/원본해상도 직접 백프로젝션/밀도 4배(57.6k pts)로 개선" 가설을 5변형 paired ablation(고정 입력, A/A 노이즈 0.00mm)으로 검증 → **전 변형 효과 ≈ 0**(per-image prior_dev 중앙값 Δ ≤ 0.002 log, GT 앵커 오차 변화 < 1%). 원인: BoxerNet `sdp_to_patches`의 16×16 패치 median 집계가 보간·밀도 차이를 흡수. 코드는 `SDP_SOURCE`/`SDP_INTERP`/`SDP_TARGET_POINTS` 스위치(기본 레거시 동일)로 유지 — GPU 정밀도(fp16/bf16) 재검증용. commit `996f1cd`, 재현: `scripts/eval_ab.py` + `analyze_ablation.py`.
+- **sdp 공급 개선 가설 (기각, 2026-06-10)**: "bilinear depth resize가 경계 혼합값(flying points)을 만들어 정확도를 해친다 → nearest/원본해상도 직접 백프로젝션/밀도 4배(57.6k pts)로 개선" 가설을 5변형 paired ablation(고정 입력, A/A 노이즈 0.00mm)으로 검증 → **전 변형 효과 ≈ 0**(per-image prior_dev 중앙값 Δ ≤ 0.002 log, GT 앵커 오차 변화 < 1%). 원인: BoxerNet `sdp_to_patches`의 16×16 패치 median 집계가 보간·밀도 차이를 흡수. 스위치 코드는 2026-06-11 리팩토링에서 제거(기본 경로로 고정, 가설 종결) — 재검증이 필요하면 git 히스토리 `996f1cd` 복원. 당시 분석: `analyze_ablation.py`(역시 제거, 동일 커밋 참조).
 
 ---
 
