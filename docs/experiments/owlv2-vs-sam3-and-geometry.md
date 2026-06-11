@@ -59,6 +59,9 @@ callback 치수(WxDxH)가 비현실적으로 나오는 문제. "검출기(OWLv2)
 
 ## 재현
 
+> ⚠ 2026-06-11: 실험 종결로 `compare_detectors.py`와 SAM3 백엔드 코드는 저장소에서 제거됨.
+> 재현이 필요하면 git 히스토리(이 문서 작성 시점 커밋)에서 복원.
+
 ```bash
 # 검출기 단계별 진단 + 오차 출처 분리
 python scripts/validate_accuracy.py --manifest scripts/local_test_manifest.json [--geocalib]
