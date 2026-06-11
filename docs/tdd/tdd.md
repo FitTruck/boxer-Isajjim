@@ -111,8 +111,8 @@ class DetectedObject:
 
 ### 3.2 Stage 1 — `ImageFetcher` (`ai/pipeline/1_images_fetch.py`)
 
-- 비동기: `aiohttp.ClientSession` (총 timeout 30s).
-- 동기 폴백: `requests` (aiohttp 미설치 시).
+- 비동기 전용: `aiohttp.ClientSession` (총 timeout 30s). `aiohttp`는 콜백 계층도
+  무조건 import하는 필수 의존성이라 별도 동기 폴백을 두지 않는다.
 - 로컬 경로 지원: `file://` prefix 또는 `/`로 시작하는 절대 경로.
 - 실패 시 `None` 반환 (호출자가 `PipelineResult.error`로 변환).
 
@@ -139,10 +139,10 @@ self.prompts = [f"a photo of a {lbl}" for lbl in self.display_labels]
 3. 모든 chunk 결과를 합친 뒤 class-agnostic NMS (`IoU=0.5`)로 중복 제거.
 4. `confidence` 임계값 `OWLV2_CONFIDENCE` (기본 0.25).
 
-반환 dict 키:
+반환 dict 키 (검출기 공통 출력 계약, `ai/pipeline/detection_common.py`의
+`empty_detections` / `merge_chunks_nms`):
 - `boxes` (N,4) xyxy float32
 - `scores` (N,) float32
-- `classes` (N,) int (LVIS class id)
 - `labels` (list[str]) 공백 정규화된 LVIS 라벨
 
 ### 3.4 Stage 3 — `DepthEstimator` (`ai/pipeline/3_depth_estimation.py`)
@@ -194,12 +194,18 @@ Meta `facebookresearch/boxer`의 `BoxerNet`을 wrapping.
 3. **데이텀 구축**:
    - `img0`: `(1, 3, H, W)` float [0,1].
    - `cam0`: `CameraTW.from_surreal(type_str="Pinhole", params=[fx,fy,cx,cy])`.
-   - `T_world_rig0`: identity pose (rig frame = world frame).
-   - `sdp_w`: `(N, 3)` 카메라 프레임 3D points (identity pose이므로 world와 동일).
+   - `T_world_rig0`: **중력 정렬 pose** — 수평 카메라 기본값(`_R_WORLD_FROM_CAM`)
+     또는 GeoCalib 추정 중력. identity pose가 아니다 (§12.1 참조).
+   - `sdp_w`: `(N, 3)` 3D points — pose와 **동일한** `R_world_cam`으로 회전시켜
+     같은 gravity-aligned world 프레임에 둔다.
    - `bb2d`: `(1, M, 4)` boxer 순서 `(x1, x2, y1, y2)` — `_to_boxer_order`로 변환.
-4. **추론**: CUDA + bf16 지원 시 `torch.autocast(bfloat16)`로, 그 외는 fp32.
+4. **추론**: GPU별 autocast 정밀도 — Ampere+/L4 bf16, Turing/T4 fp16, MPS/CPU fp32
+   (`ai/gpu/precision.py`).
 5. **결과 파싱** (`_to_results`):
-   - `obb_w.bb3_diagonal` (M,3) → `(w_m, h_m, d_m)`.
+   - `obb_w.bb3_diagonal` (M,3) `(footprint_a, footprint_b, vertical)` →
+     `(width_m, depth_m, height_m)`. **3번째 성분이 중력 기준 수직축(height)**이며,
+     앞 두 성분은 90° yaw 대칭으로 교환되는 수평 footprint 쌍이다
+     (`tests/test_boxer_axis.py`가 이 순서를 고정).
    - `obb_w.bb3_volumes` (M,) → `volume_m3`.
    - `obb_w.bb3_center_world` (M,3) → `center_world`.
    - `obb_w.prob < conf_threshold(0.2)` 항목은 드롭.
@@ -516,8 +522,8 @@ markers =
 - `test_gpu_pool.py:40-58`은 세마포어가 폴링이 아님을 보장한다 — `release()` 후
   대기 중인 `acquire()`가 0.3s 안에 깨어나야 통과. 구 `asyncio.sleep` 폴링 구현은
   0.5s 이상 걸려 실패한다.
-- `test_image_fetcher.py:25`는 `file://` URL이 `fetch_sync`로 fall through하지 않는
-  현재 구현의 한계를 우회하기 위해 `_load_local`을 직접 호출한다 (스모크 의도).
+- `test_image_fetcher.py`는 로컬 경로 처리를 `_load_local` 직접 호출로 스모크 테스트하고,
+  HTTP 404를 graceful `None` 반환으로 검증한다.
 
 ---
 
@@ -681,21 +687,15 @@ focal_px = float(res["camera"].f...)
 환원됨을 수식으로 검증했다. 검증 결과 테스트 2장 모두 GeoCalib가 "거의 수평"으로 판정 →
 기본값이 옳았음을 확인.
 
-### 12.4 검출기 백엔드 스위치 + OWLv2 vs SAM3 A/B — `DETECTOR_BACKEND`
+### 12.4 OWLv2 vs SAM3 A/B (실험 종결) — 검출기 선택
 
-`Owlv2Detector`/`Sam3Detector`가 동일 `detect()` 계약(`{boxes, scores, classes, labels}`)을
-따르고, `DETECTOR_BACKEND=owlv2|sam3`로 교체된다(`furniture_pipeline.py`).
-
-```python
-if Config.DETECTOR_BACKEND == "sam3":
-    self.detector = Sam3Detector(device=device)   # facebook/sam3, 컨셉 프롬프트당 추론
-else:
-    self.detector = Owlv2Detector(device=device)  # 기본
-```
+> **2026-06-11**: A/B가 OWLv2로 결론남에 따라 SAM3 백엔드(`sam3_detection.py`,
+> `DETECTOR_BACKEND`/`SAM3_*` 설정, `compare_detectors.py`)는 저장소에서 제거했다.
+> `FurniturePipeline`은 `Owlv2Detector`로 고정. 코드 복원은 git 히스토리.
 
 **A/B 결론** (동일 depth + BoxerNet): 같은 객체의 **3D 치수는 OWLv2 ≈ SAM3로 사실상 동일**
 (tight mask가 치수를 개선하지 않음). SAM3는 오탐이 적고 고신뢰(0.96~0.98)지만 **30~100배
-느리고** recall이 낮다. → **프로덕션은 OWLv2 유지 + 후처리(threshold/NMS)** 권장.
+느리고** recall이 낮다. → **프로덕션은 OWLv2 유지 + 후처리(threshold/NMS)**.
 즉 치수 정확도의 병목은 검출기가 아니라 **기하/depth**다(12.1이 핵심 레버).
 
 ### 12.5 클래스별 치수 sanity 보정 — `ai/pipeline/dimension_bounds.py`
@@ -720,6 +720,10 @@ w_mm, d_mm, h_mm, corrections = sanitize_dims(label, w_mm, d_mm, h_mm)  # proces
 검증(실측): bed `2062×1372×2375` → `2062×1372×450mm`, desk height `1381 → 760mm`.
 `SANITIZE_DIMENSIONS` env(기본 on)로 끌 수 있다. 한계: prior 보정이라 부피 견적엔
 실용적이나 개별 "측정" 정확도가 오른 건 아니며, 보정률이 모델 약점을 가릴 수 있다.
+
+> 후속(2026-06): footprint 역전 버그 수정 + prob 가중 연속 융합 모드
+> (`SANITIZE_MODE=fused`, opt-in) + 세탁기/건조기/TV bounds 실측 교정.
+> 상세는 `docs/optimization/opt.md` A-5/A-6.
 
 ---
 
